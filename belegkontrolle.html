@@ -436,14 +436,21 @@ async function handlePdfFile(event){
       const page = await pdf.getPage(p);
       const content = await page.getTextContent();
       let lastY = null;
+      let lastEndX = null;
       let line = '';
       for(const item of content.items){
         const y = item.transform[5];
+        const x = item.transform[4];
         if(lastY !== null && Math.abs(y - lastY) > 2){
           fullText += line.trim() + '\n';
           line = '';
+          lastEndX = null;
         }
-        line += item.str + ' ';
+        if(lastEndX !== null && (x - lastEndX) > 1.5){
+          line += ' ';
+        }
+        line += item.str;
+        lastEndX = x + (item.width || 0);
         lastY = y;
       }
       fullText += line.trim() + '\n';
