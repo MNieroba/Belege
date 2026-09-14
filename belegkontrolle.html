@@ -24,6 +24,7 @@
     --green-bg:rgba(47,191,113,0.14);
     --amber:#f2a93b;
     --amber-bg:rgba(242,169,59,0.14);
+    --grey:#8b8c92;
   }
   *{box-sizing:border-box;}
   body{
@@ -145,8 +146,10 @@
     background:var(--amber-bg);
   }
   .badge.ok{border-color:var(--green);color:var(--green);background:var(--green-bg);}
+  .badge.skip{border-color:var(--grey);color:var(--grey);background:rgba(139,140,146,0.14);}
 
-  table{width:100%;border-collapse:separate;border-spacing:0;margin-bottom:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+  .table-wrap{overflow-x:auto;margin-bottom:22px;}
+  table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
   thead th{
     text-align:left;
     font-size:11px;
@@ -156,6 +159,7 @@
     color:var(--text-soft);
     background:var(--surface-2);
     padding:10px 12px;
+    white-space:nowrap;
   }
   tbody td{
     padding:10px 12px;
@@ -163,24 +167,21 @@
     vertical-align:middle;
   }
   tbody tr:hover{background:var(--surface-2);}
+  tr.row-missing td{background:rgba(242,169,59,0.09);}
+  tr.row-missing:hover td{background:rgba(242,169,59,0.16);}
+  tr.row-skip td{opacity:0.6;}
   td.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
   td.amount.neg{color:#ff6b6b;}
   td.amount.pos{color:var(--green);}
-  .beleg-toggle{
-    width:20px;height:20px;
-    border:1.5px solid var(--border);
-    border-radius:999px;
-    cursor:pointer;
-    display:inline-block;
-    background:var(--surface-2);
-  }
-  .beleg-toggle.checked{background:var(--green);border-color:var(--green);}
+  .row-note{font-size:11px;color:var(--text-soft);margin-top:4px;font-style:italic;}
+  .row-actions{white-space:nowrap;}
   .row-actions button{padding:4px 9px;font-size:11px;}
+  .status-select{min-width:120px;}
   .subtotal-row td{font-weight:700;border-top:1px solid var(--border);background:var(--surface-2);}
 
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px;margin-bottom:10px;}
   .form-grid .full{grid-column:1 / -1;}
-  .month-picker{display:flex;gap:10px;align-items:center;margin-bottom:18px;}
+  .month-picker{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;}
   .month-picker select{width:auto;}
 
   #pdf-preview-wrap{margin-top:20px;}
@@ -246,10 +247,12 @@
           <label>Betrag (€, negativ = Ausgabe)</label>
           <input type="number" step="0.01" id="in-betrag" placeholder="-45.00">
         </div>
-        <div class="field" style="display:flex;align-items:flex-end;gap:8px;">
-          <label style="margin:0 8px 9px 0;">
-            <input type="checkbox" id="in-beleg" style="width:auto;"> Beleg schon gefunden
-          </label>
+        <div class="field">
+          <label>Beleg-Status</label>
+          <select id="in-status">
+            <option value="offen">Fehlt noch</option>
+            <option value="gefunden">Schon gefunden</option>
+          </select>
         </div>
       </div>
       <button onclick="submitManuell()">Buchung speichern</button>
@@ -259,7 +262,7 @@
     <!-- PDF EINLESEN -->
     <section id="view-pdf" class="hidden">
       <div class="view-header"><h2>Kontoauszug-Text einlesen</h2></div>
-      <p class="helptext">Text aus dem PDF-Kontoauszug markieren, kopieren und hier einfügen. Die Zeilen werden automatisch erkannt — bitte vor dem Übernehmen kurz prüfen, das Erkennen ist nicht perfekt.</p>
+      <p class="helptext">PDF-Datei auswählen oder Text aus dem PDF einfügen. Die Zeilen werden automatisch erkannt — bitte vor dem Übernehmen kurz prüfen, das Erkennen ist nicht perfekt.</p>
       <div class="form-grid" style="margin-bottom:14px;">
         <div class="field">
           <label>Jahr des Auszugs</label>
@@ -304,3 +307,498 @@
   </main>
 </div>
 
+<script>
+const SUPABASE_URL = "https://uruzvjpaqangracysigp.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Ch-bJoOYR5K_sI7A_17Z5A_YyY_MY-l";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+async function login(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ errEl.textContent = "Anmeldung fehlgeschlagen: " + error.message; return; }
+  await onLoggedIn();
+}
+
+async function logout(){
+  await sb.auth.signOut();
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+async function onLoggedIn(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) return;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('user-email').textContent = session.user.email;
+  initPickers();
+  switchView('eingabe');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if(session) onLoggedIn();
+
+  document.getElementById('in-datum').valueAsDate = new Date();
+  document.getElementById('pdf-jahr').value = new Date().getFullYear();
+
+  const fileInput = document.getElementById('pdf-file');
+  if(fileInput){ fileInput.addEventListener('change', handlePdfFile); }
+});
+
+function switchView(name){
+  ['eingabe','pdf','monat','jahr'].forEach(v => {
+    document.getElementById('view-'+v).classList.toggle('hidden', v !== name);
+  });
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  if(name === 'monat') loadMonat();
+  if(name === 'jahr') loadJahr();
+}
+
+function initPickers(){
+  const now = new Date();
+  const monatSel = document.getElementById('monat-monat');
+  monatSel.innerHTML = MONTH_NAMES.map((m,i) => `<option value="${i+1}" ${i+1===now.getMonth()+1?'selected':''}>${m}</option>`).join('');
+
+  const years = [];
+  for(let y = now.getFullYear() - 3; y <= now.getFullYear() + 1; y++) years.push(y);
+
+  const jahrSel = document.getElementById('monat-jahr');
+  jahrSel.innerHTML = years.map(y => `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`).join('');
+
+  const jahrSel2 = document.getElementById('jahr-jahr');
+  jahrSel2.innerHTML = years.map(y => `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`).join('');
+}
+
+function formatEUR(n){
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+}
+
+async function submitManuell(){
+  const datum = document.getElementById('in-datum').value;
+  const typ = document.getElementById('in-typ').value;
+  const beschreibung = document.getElementById('in-beschreibung').value.trim();
+  const betrag = parseFloat(document.getElementById('in-betrag').value);
+  const status = document.getElementById('in-status').value;
+  const statusEl = document.getElementById('eingabe-status');
+
+  if(!datum || !beschreibung || isNaN(betrag)){
+    statusEl.textContent = "Bitte Datum, Beschreibung und Betrag ausfüllen.";
+    statusEl.style.color = "#ff6b6b";
+    return;
+  }
+  const d = new Date(datum);
+  const { data: { session } } = await sb.auth.getSession();
+
+  const { error } = await sb.from('transactions').insert({
+    jahr: d.getFullYear(),
+    monat: d.getMonth() + 1,
+    datum,
+    typ,
+    beschreibung,
+    betrag,
+    beleg_gefunden: status === 'gefunden',
+    nicht_auffindbar: false,
+    notiz: null,
+    erstellt_von: session.user.email
+  });
+
+  if(error){
+    statusEl.textContent = "Fehler beim Speichern: " + error.message;
+    statusEl.style.color = "#ff6b6b";
+    return;
+  }
+  statusEl.textContent = "Gespeichert.";
+  statusEl.style.color = "#2fbf71";
+  document.getElementById('in-beschreibung').value = "";
+  document.getElementById('in-betrag').value = "";
+  document.getElementById('in-status').value = "offen";
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+async function handlePdfFile(event){
+  const file = event.target.files[0];
+  const statusEl = document.getElementById('pdf-file-status');
+  if(!file) return;
+  statusEl.textContent = "Lese PDF ein ...";
+  statusEl.style.color = "var(--text-soft)";
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let fullText = '';
+    for(let p = 1; p <= pdf.numPages; p++){
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      let lastY = null;
+      let line = '';
+      for(const item of content.items){
+        const y = item.transform[5];
+        if(lastY !== null && Math.abs(y - lastY) > 2){
+          fullText += line.trim() + '\n';
+          line = '';
+        }
+        line += item.str + ' ';
+        lastY = y;
+      }
+      fullText += line.trim() + '\n';
+    }
+    document.getElementById('pdf-text').value = fullText.trim();
+    statusEl.textContent = "PDF gelesen — jetzt auf \"Zeilen erkennen\" tippen.";
+    statusEl.style.color = "var(--green)";
+  } catch(err){
+    statusEl.textContent = "Konnte PDF nicht lesen: " + err.message;
+    statusEl.style.color = "#ff6b6b";
+  }
+}
+
+function parsePdf(){
+  const text = document.getElementById('pdf-text').value;
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  const dateLineRe = /^(\d{2})\/(\d{2})\s+(.*)$/;
+  const amountLineRe = /^([+-])\s*([\d.,]+)\s*EUR$/;
+
+  const results = [];
+  let current = null;
+
+  for(const line of lines){
+    const dateMatch = line.match(dateLineRe);
+    const amountMatch = line.match(amountLineRe);
+
+    if(dateMatch){
+      current = { tag: dateMatch[1], monatNr: dateMatch[2], beschreibung: [dateMatch[3]] };
+      continue;
+    }
+    if(amountMatch && current){
+      const betrag = parseFloat(amountMatch[2].replace(/\./g,'').replace(',', '.')) || parseFloat(amountMatch[2]);
+      const signed = amountMatch[1] === '-' ? -Math.abs(betrag) : Math.abs(betrag);
+      results.push({
+        tag: current.tag,
+        monatNr: current.monatNr,
+        beschreibung: current.beschreibung.join(' / '),
+        betrag: signed
+      });
+      current = null;
+      continue;
+    }
+    if(current){
+      current.beschreibung.push(line);
+    }
+  }
+  renderPdfPreview(results);
+}
+
+function renderPdfPreview(results){
+  const wrap = document.getElementById('pdf-preview-wrap');
+  if(results.length === 0){
+    wrap.innerHTML = '<p class="empty-note">Keine Buchungszeilen erkannt. Format des eingefügten Texts prüfen.</p>';
+    return;
+  }
+  const rows = results.map((r,i) => `
+    <tr>
+      <td><input type="checkbox" class="checkall pdf-row-check" data-i="${i}" checked></td>
+      <td><input type="text" value="${r.tag}/${r.monatNr}" data-field="datum" data-i="${i}" style="width:70px;"></td>
+      <td><input type="text" value="${r.beschreibung.replace(/"/g,'&quot;')}" data-field="beschreibung" data-i="${i}" style="width:260px;"></td>
+      <td><input type="number" step="0.01" value="${r.betrag}" data-field="betrag" data-i="${i}" style="width:90px;"></td>
+      <td>
+        <select data-field="typ" data-i="${i}" style="width:80px;">
+          <option value="Bank">Bank</option>
+          <option value="Bar">Bar</option>
+        </select>
+      </td>
+    </tr>
+  `).join('');
+
+  wrap.innerHTML = `
+    <p style="margin-top:0;font-size:13px;">${results.length} Zeilen erkannt — prüfen, ggf. korrigieren, dann übernehmen.</p>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th>Betrag</th><th>Typ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    </div>
+    <button onclick="confirmPdfImport()">Ausgewählte übernehmen</button>
+    <div id="pdf-import-status" class="helptext"></div>
+  `;
+}
+
+async function confirmPdfImport(){
+  const jahr = parseInt(document.getElementById('pdf-jahr').value, 10);
+  const statusEl = document.getElementById('pdf-import-status');
+  if(!jahr){
+    statusEl.textContent = "Bitte oben das Jahr des Auszugs angeben.";
+    statusEl.style.color = "#ff6b6b";
+    return;
+  }
+
+  const rows = document.querySelectorAll('#pdf-preview-wrap tbody tr');
+  const { data: { session } } = await sb.auth.getSession();
+  const toInsert = [];
+
+  rows.forEach((row) => {
+    const checked = row.querySelector('.pdf-row-check').checked;
+    if(!checked) return;
+    const datumStr = row.querySelector('[data-field="datum"]').value;
+    const beschreibung = row.querySelector('[data-field="beschreibung"]').value;
+    const betrag = parseFloat(row.querySelector('[data-field="betrag"]').value);
+    const typ = row.querySelector('[data-field="typ"]').value;
+    const [tag, monatNr] = datumStr.split('/');
+    if(!tag || !monatNr || isNaN(betrag)) return;
+
+    const datum = `${jahr}-${monatNr.padStart(2,'0')}-${tag.padStart(2,'0')}`;
+    toInsert.push({
+      jahr,
+      monat: parseInt(monatNr, 10),
+      datum,
+      typ,
+      beschreibung,
+      betrag,
+      beleg_gefunden: false,
+      nicht_auffindbar: false,
+      notiz: null,
+      erstellt_von: session.user.email
+    });
+  });
+
+  if(toInsert.length === 0){
+    statusEl.textContent = "Keine Zeile ausgewählt.";
+    statusEl.style.color = "#ff6b6b";
+    return;
+  }
+
+  const { error } = await sb.from('transactions').insert(toInsert);
+  if(error){
+    statusEl.textContent = "Fehler beim Speichern: " + error.message;
+    statusEl.style.color = "#ff6b6b";
+    return;
+  }
+  statusEl.textContent = toInsert.length + " Buchungen übernommen.";
+  statusEl.style.color = "#2fbf71";
+  document.getElementById('pdf-text').value = "";
+  document.getElementById('pdf-preview-wrap').innerHTML = "";
+}
+
+let editingRowId = null;
+
+async function loadMonat(){
+  const monat = parseInt(document.getElementById('monat-monat').value, 10);
+  const jahr = parseInt(document.getElementById('monat-jahr').value, 10);
+
+  const { data, error } = await sb.from('transactions')
+    .select('*')
+    .eq('jahr', jahr).eq('monat', monat)
+    .order('datum', { ascending: true });
+
+  const content = document.getElementById('monat-content');
+  if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
+
+  const offen = (data || []).filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).length;
+  const badge = document.getElementById('monat-badge');
+  if((data||[]).length === 0){
+    badge.textContent = "keine Buchungen";
+    badge.className = "badge";
+  } else if(offen === 0){
+    badge.textContent = "alle Belege geklärt";
+    badge.className = "badge ok";
+  } else {
+    badge.textContent = offen + " Beleg(e) fehlen noch";
+    badge.className = "badge";
+  }
+
+  if(!data || data.length === 0){
+    content.innerHTML = '<p class="empty-note">Keine Buchungen für diesen Monat.</p>';
+    return;
+  }
+
+  content.innerHTML = renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
+                       renderTypeBlock('Bar', data.filter(r=>r.typ==='Bar'));
+}
+
+function statusSelectHtml(r){
+  return `
+    <select class="status-select" onchange="updateBelegStatus('${r.id}', this.value)">
+      <option value="offen" ${!r.beleg_gefunden && !r.nicht_auffindbar ? 'selected':''}>Fehlt noch</option>
+      <option value="gefunden" ${r.beleg_gefunden ? 'selected':''}>Gefunden</option>
+      <option value="skip" ${r.nicht_auffindbar ? 'selected':''}>Nicht auffindbar</option>
+    </select>
+    ${r.nicht_auffindbar && r.notiz ? `<div class="row-note">"${r.notiz.replace(/</g,'&lt;')}"</div>` : ''}
+  `;
+}
+
+function renderTypeBlock(typ, rows){
+  if(rows.length === 0) return '';
+  const einnahmen = rows.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
+  const ausgaben = rows.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
+
+  const body = rows.map(r => {
+    if(r.id === editingRowId){
+      return `
+        <tr>
+          <td><input type="date" id="edit-datum-${r.id}" value="${r.datum || ''}" style="width:130px;"></td>
+          <td><input type="text" id="edit-beschreibung-${r.id}" value="${(r.beschreibung||'').replace(/"/g,'&quot;')}"></td>
+          <td>
+            <input type="number" step="0.01" id="edit-betrag-${r.id}" value="${r.betrag}" style="width:90px;">
+            <select id="edit-typ-${r.id}" style="width:70px;margin-top:4px;">
+              <option value="Bank" ${r.typ==='Bank'?'selected':''}>Bank</option>
+              <option value="Bar" ${r.typ==='Bar'?'selected':''}>Bar</option>
+            </select>
+          </td>
+          <td>${statusSelectHtml(r)}</td>
+          <td class="row-actions">
+            <button onclick="saveEdit('${r.id}')">Speichern</button>
+            <button class="secondary" onclick="cancelEdit()">Abbrechen</button>
+          </td>
+        </tr>
+      `;
+    }
+    const rowClass = r.beleg_gefunden ? '' : (r.nicht_auffindbar ? 'row-skip' : 'row-missing');
+    return `
+    <tr class="${rowClass}">
+      <td>${r.datum ? r.datum.split('-').reverse().join('.') : '–'}</td>
+      <td>${r.beschreibung}</td>
+      <td class="amount ${r.betrag<0?'neg':'pos'}">${formatEUR(r.betrag)}</td>
+      <td>${statusSelectHtml(r)}</td>
+      <td class="row-actions">
+        <button class="secondary" onclick="startEdit('${r.id}')">Bearbeiten</button>
+        <button class="danger" onclick="deleteRow('${r.id}')">Löschen</button>
+      </td>
+    </tr>
+  `;
+  }).join('');
+
+  return `
+    <h3 style="margin-top:22px;">${typ}</h3>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th style="width:90px;">Datum</th><th>Beschreibung</th><th style="width:110px;">Betrag</th><th style="width:150px;">Beleg</th><th style="width:150px;"></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot>
+        <tr class="subtotal-row"><td colspan="2">Einnahmen</td><td class="amount pos">${formatEUR(einnahmen)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td colspan="2">Ausgaben</td><td class="amount neg">${formatEUR(ausgaben)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td colspan="2">Saldo ${typ}</td><td class="amount">${formatEUR(einnahmen+ausgaben)}</td><td colspan="2"></td></tr>
+      </tfoot>
+    </table>
+    </div>
+  `;
+}
+
+async function updateBelegStatus(id, value){
+  let update = { beleg_gefunden: false, nicht_auffindbar: false, notiz: null };
+  if(value === 'gefunden'){
+    update.beleg_gefunden = true;
+  } else if(value === 'skip'){
+    const note = prompt('Kurze Notiz (z. B. Grund oder "privat, wird nicht eingereicht"):', '');
+    update.nicht_auffindbar = true;
+    update.notiz = note && note.trim() ? note.trim() : null;
+  }
+  await sb.from('transactions').update(update).eq('id', id);
+  loadMonat();
+}
+
+function startEdit(id){
+  editingRowId = id;
+  loadMonat();
+}
+
+function cancelEdit(){
+  editingRowId = null;
+  loadMonat();
+}
+
+async function saveEdit(id){
+  const datum = document.getElementById('edit-datum-'+id).value;
+  const beschreibung = document.getElementById('edit-beschreibung-'+id).value.trim();
+  const betrag = parseFloat(document.getElementById('edit-betrag-'+id).value);
+  const typ = document.getElementById('edit-typ-'+id).value;
+
+  if(!datum || !beschreibung || isNaN(betrag)){
+    alert('Bitte Datum, Beschreibung und Betrag ausfüllen.');
+    return;
+  }
+  const d = new Date(datum);
+  const { error } = await sb.from('transactions').update({
+    datum,
+    jahr: d.getFullYear(),
+    monat: d.getMonth() + 1,
+    beschreibung,
+    betrag,
+    typ
+  }).eq('id', id);
+
+  if(error){
+    alert('Fehler beim Speichern: ' + error.message);
+    return;
+  }
+  editingRowId = null;
+  loadMonat();
+}
+
+async function deleteRow(id){
+  if(!confirm('Diese Buchung wirklich löschen?')) return;
+  await sb.from('transactions').delete().eq('id', id);
+  loadMonat();
+}
+
+async function loadJahr(){
+  const jahr = parseInt(document.getElementById('jahr-jahr').value, 10);
+  const { data, error } = await sb.from('transactions').select('*').eq('jahr', jahr);
+  const content = document.getElementById('jahr-content');
+  if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
+
+  if(!data || data.length === 0){
+    content.innerHTML = '<p class="empty-note">Keine Buchungen für dieses Jahr.</p>';
+    return;
+  }
+
+  const perMonth = {};
+  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0 };
+  data.forEach(r => {
+    const m = perMonth[r.monat];
+    if(r.betrag > 0) m.einnahmen += r.betrag; else m.ausgaben += r.betrag;
+    if(!r.beleg_gefunden && !r.nicht_auffindbar) m.offen++;
+    m.gesamt++;
+  });
+
+  let totalEin = 0, totalAus = 0, totalOffen = 0;
+  const rows = MONTH_NAMES.map((name, i) => {
+    const m = perMonth[i+1];
+    if(m.gesamt === 0) return '';
+    totalEin += m.einnahmen; totalAus += m.ausgaben; totalOffen += m.offen;
+    return `
+      <tr>
+        <td>${name}</td>
+        <td class="amount pos">${formatEUR(m.einnahmen)}</td>
+        <td class="amount neg">${formatEUR(m.ausgaben)}</td>
+        <td class="amount">${formatEUR(m.einnahmen+m.ausgaben)}</td>
+        <td>${m.offen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+m.offen+' offen</span>'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  content.innerHTML = `
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Belege</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr class="subtotal-row">
+          <td>Jahr gesamt</td>
+          <td class="amount pos">${formatEUR(totalEin)}</td>
+          <td class="amount neg">${formatEUR(totalAus)}</td>
+          <td class="amount">${formatEUR(totalEin+totalAus)}</td>
+          <td>${totalOffen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+totalOffen+' offen</span>'}</td>
+        </tr>
+      </tfoot>
+    </table>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
