@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Belegkontrolle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#1c2a24;
+    --ink-soft:#3d4b45;
+    --paper:#eef1ec;
+    --paper-raised:#f7f8f5;
+    --line:#c9cfc6;
+    --navy:#233129;
+    --green:#1f6d4c;
+    --green-bg:#e3efe6;
+    --amber:#a8721f;
+    --amber-bg:#f4ead6;
+    --red:#a5382f;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'IBM Plex Mono', monospace;
+    background:var(--paper);
+    color:var(--ink);
+    font-size:14px;
+  }
+  h1,h2,h3{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    margin:0 0 4px 0;
+    letter-spacing:0.2px;
+  }
+  .hidden{display:none !important;}
+
+  /* ---- Login ---- */
+  #login-screen{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:var(--navy);
+  }
+  .login-card{
+    background:var(--paper-raised);
+    padding:40px 36px;
+    width:320px;
+    border-top:3px solid var(--green);
+  }
+  .login-card h1{font-size:26px;color:var(--navy);}
+  .login-card p{color:var(--ink-soft);margin:0 0 22px 0;font-size:13px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);margin-bottom:5px;}
+  input, select, textarea{
+    width:100%;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:14px;
+    padding:9px 10px;
+    border:1px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+  }
+  button{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:13px;
+    font-weight:500;
+    cursor:pointer;
+    border:1px solid var(--navy);
+    background:var(--navy);
+    color:#fff;
+    padding:10px 16px;
+  }
+  button:hover{background:#31463a;}
+  button.secondary{background:transparent;color:var(--navy);}
+  button.secondary:hover{background:#e4e7e1;}
+  button.danger{background:transparent;border-color:var(--red);color:var(--red);}
+  button.danger:hover{background:#f6e6e4;}
+  .login-error{color:var(--red);font-size:12px;margin-top:10px;min-height:16px;}
+
+  /* ---- App shell ---- */
+  #app{display:flex;min-height:100vh;}
+  .sidebar{
+    width:190px;
+    background:var(--navy);
+    color:#dfe6e0;
+    padding:26px 0;
+    flex-shrink:0;
+  }
+  .sidebar h1{color:#fff;font-size:19px;padding:0 22px 22px 22px;border-bottom:1px solid #3a4a3e;margin-bottom:10px;}
+  .nav-item{
+    display:block;
+    width:100%;
+    text-align:left;
+    background:none;
+    border:none;
+    color:#c3cec6;
+    padding:11px 22px;
+    font-size:13px;
+  }
+  .nav-item:hover{background:#2c3d33;color:#fff;}
+  .nav-item.active{background:var(--paper);color:var(--navy);font-weight:600;}
+  .sidebar-foot{padding:16px 22px;margin-top:20px;border-top:1px solid #3a4a3e;}
+  .sidebar-foot .user-email{font-size:11px;color:#93a29a;margin-bottom:8px;word-break:break-all;}
+
+  main{flex:1;padding:34px 40px;max-width:960px;}
+  .view-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;flex-wrap:wrap;gap:10px;}
+  .badge{
+    display:inline-block;
+    font-size:11px;
+    padding:3px 9px;
+    border:1px solid var(--amber);
+    color:var(--amber);
+    background:var(--amber-bg);
+  }
+  .badge.ok{border-color:var(--green);color:var(--green);background:var(--green-bg);}
+
+  table{width:100%;border-collapse:collapse;margin-bottom:22px;}
+  thead th{
+    text-align:left;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--ink-soft);
+    border-bottom:2px solid var(--ink);
+    padding:6px 8px;
+  }
+  tbody td{
+    padding:8px 8px;
+    border-bottom:1px solid var(--line);
+    vertical-align:middle;
+  }
+  tbody tr:hover{background:var(--paper-raised);}
+  td.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  td.amount.neg{color:var(--red);}
+  td.amount.pos{color:var(--green);}
+  .type-tag{font-size:10px;padding:2px 6px;border:1px solid var(--line);color:var(--ink-soft);}
+  .beleg-toggle{
+    width:20px;height:20px;
+    border:1.5px solid var(--line);
+    cursor:pointer;
+    display:inline-block;
+    background:#fff;
+  }
+  .beleg-toggle.checked{background:var(--green);border-color:var(--green);}
+  .row-actions button{padding:3px 7px;font-size:11px;}
+  .subtotal-row td{font-weight:600;border-top:1px solid var(--ink);border-bottom:none;}
+
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px;margin-bottom:10px;}
+  .form-grid .full{grid-column:1 / -1;}
+  .month-picker{display:flex;gap:10px;align-items:center;margin-bottom:18px;}
+  .month-picker select{width:auto;}
+
+  #pdf-preview-wrap{margin-top:20px;}
+  #pdf-preview-wrap table input{padding:5px 6px;font-size:12px;}
+  .checkall{width:16px;height:16px;}
+  .empty-note{color:var(--ink-soft);font-style:italic;font-size:13px;padding:14px 0;}
+  .helptext{color:var(--ink-soft);font-size:12px;margin:-8px 0 16px 0;max-width:520px;}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Belegkontrolle</h1>
+    <p>Interne Kontrolle vor der Übergabe an den Steuerberater.</p>
+    <div class="field">
+      <label for="login-email">E-Mail</label>
+      <input type="email" id="login-email" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="login-password">Passwort</label>
+      <input type="password" id="login-password" autocomplete="current-password">
+    </div>
+    <button style="width:100%" onclick="login()">Anmelden</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <aside class="sidebar">
+    <h1>Belegkontrolle</h1>
+    <button class="nav-item active" data-view="eingabe" onclick="switchView('eingabe')">Eingabe</button>
+    <button class="nav-item" data-view="pdf" onclick="switchView('pdf')">PDF einlesen</button>
+    <button class="nav-item" data-view="monat" onclick="switchView('monat')">Monatsübersicht</button>
+    <button class="nav-item" data-view="jahr" onclick="switchView('jahr')">Jahresübersicht</button>
+    <div class="sidebar-foot">
+      <div class="user-email" id="user-email"></div>
+      <button class="secondary" style="width:100%" onclick="logout()">Abmelden</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- EINGABE -->
+    <section id="view-eingabe">
+      <div class="view-header"><h2>Buchung manuell eintragen</h2></div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Datum</label>
+          <input type="date" id="in-datum">
+        </div>
+        <div class="field">
+          <label>Typ</label>
+          <select id="in-typ">
+            <option value="Bank">Bank</option>
+            <option value="Bar">Bar</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Beschreibung</label>
+          <input type="text" id="in-beschreibung" placeholder="z. B. Bauhaus 898, Miete Juni ...">
+        </div>
+        <div class="field">
+          <label>Betrag (€, negativ = Ausgabe)</label>
+          <input type="number" step="0.01" id="in-betrag" placeholder="-45.00">
+        </div>
+        <div class="field" style="display:flex;align-items:flex-end;gap:8px;">
+          <label style="margin:0 8px 9px 0;">
+            <input type="checkbox" id="in-beleg" style="width:auto;"> Beleg schon gefunden
+          </label>
+        </div>
+      </div>
+      <button onclick="submitManuell()">Buchung speichern</button>
+      <div id="eingabe-status" class="helptext"></div>
+    </section>
+
+    <!-- PDF EINLESEN -->
+    <section id="view-pdf" class="hidden">
+      <div class="view-header"><h2>Kontoauszug-Text einlesen</h2></div>
+      <p class="helptext">Text aus dem PDF-Kontoauszug markieren, kopieren und hier einfügen. Die Zeilen werden automatisch erkannt — bitte vor dem Übernehmen kurz prüfen, das Erkennen ist nicht perfekt.</p>
+      <div class="form-grid" style="margin-bottom:14px;">
+        <div class="field">
+          <label>Jahr des Auszugs</label>
+          <input type="number" id="pdf-jahr" placeholder="2026">
+        </div>
+      </div>
+      <textarea id="pdf-text" rows="8" style="max-width:700px;" placeholder="Hier den kopierten Text aus dem PDF einfügen ..."></textarea>
+      <div style="margin-top:10px;">
+        <button onclick="parsePdf()">Zeilen erkennen</button>
+      </div>
+      <div id="pdf-preview-wrap"></div>
+    </section>
+
+    <!-- MONATSÜBERSICHT -->
+    <section id="view-monat" class="hidden">
+      <div class="view-header">
+        <h2>Monatsübersicht</h2>
+        <span class="badge" id="monat-badge">–</span>
+      </div>
+      <div class="month-picker">
+        <select id="monat-monat"></select>
+        <select id="monat-jahr"></select>
+        <button class="secondary" onclick="loadMonat()">Anzeigen</button>
+      </div>
+      <div id="monat-content"></div>
+    </section>
+
+    <!-- JAHRESÜBERSICHT -->
+    <section id="view-jahr" class="hidden">
+      <div class="view-header"><h2>Jahresübersicht</h2></div>
+      <div class="month-picker">
+        <select id="jahr-jahr"></select>
+        <button class="secondary" onclick="loadJahr()">Anzeigen</button>
+      </div>
+      <div id="jahr-content"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+// ================= Konfiguration =================
+const SUPABASE_URL = "https://uruzvjpaqangracysigp.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Ch-bJoOYR5K_sI7A_17Z5A_YyY_MY-l";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+// ================= Auth =================
+async function login(){
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ errEl.textContent = "Anmeldung fehlgeschlagen: " + error.message; return; }
+  await onLoggedIn();
+}
+
+async function logout(){
+  await sb.auth.signOut();
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+async function onLoggedIn(){
+  const { data: { session } } = await sb.auth.getSession();
+  if(!session) return;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('user-email').textContent = session.user.email;
+  initPickers();
+  switchView('eingabe');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if(session) onLoggedIn();
+
+  document.getElementById('in-datum').valueAsDate = new Date();
+  document.getElementById('pdf-jahr').value = new Date().getFullYear();
+});
+
+// ================= Navigation =================
+function switchView(name){
+  ['eingabe','pdf','monat','jahr'].forEach(v => {
+    document.getElementById('view-'+v).classList.toggle('hidden', v !== name);
+  });
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  if(name === 'monat') loadMonat();
+  if(name === 'jahr') loadJahr();
+}
+
+function initPickers(){
+  const now = new Date();
+  const monatSel = document.getElementById('monat-monat');
+  monatSel.innerHTML = MONTH_NAMES.map((m,i) => `<option value="${i+1}" ${i+1===now.getMonth()+1?'selected':''}>${m}</option>`).join('');
+
+  const years = [];
+  for(let y = now.getFullYear() - 3; y <= now.getFullYear() + 1; y++) years.push(y);
+
+  const jahrSel = document.getElementById('monat-jahr');
+  jahrSel.innerHTML = years.map(y => `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`).join('');
+
+  const jahrSel2 = document.getElementById('jahr-jahr');
+  jahrSel2.innerHTML = years.map(y => `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`).join('');
+}
+
+// ================= Helpers =================
+function formatEUR(n){
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+}
+
+// ================= Manuelle Eingabe =================
+async function submitManuell(){
+  const datum = document.getElementById('in-datum').value;
+  const typ = document.getElementById('in-typ').value;
+  const beschreibung = document.getElementById('in-beschreibung').value.trim();
+  const betrag = parseFloat(document.getElementById('in-betrag').value);
+  const beleg = document.getElementById('in-beleg').checked;
+  const statusEl = document.getElementById('eingabe-status');
+
+  if(!datum || !beschreibung || isNaN(betrag)){
+    statusEl.textContent = "Bitte Datum, Beschreibung und Betrag ausfüllen.";
+    statusEl.style.color = "var(--red)";
+    return;
+  }
+  const d = new Date(datum);
+  const { data: { session } } = await sb.auth.getSession();
+
+  const { error } = await sb.from('transactions').insert({
+    jahr: d.getFullYear(),
+    monat: d.getMonth() + 1,
+    datum,
+    typ,
+    beschreibung,
+    betrag,
+    beleg_gefunden: beleg,
+    erstellt_von: session.user.email
+  });
+
+  if(error){
+    statusEl.textContent = "Fehler beim Speichern: " + error.message;
+    statusEl.style.color = "var(--red)";
+    return;
+  }
+  statusEl.textContent = "Gespeichert.";
+  statusEl.style.color = "var(--green)";
+  document.getElementById('in-beschreibung').value = "";
+  document.getElementById('in-betrag').value = "";
+  document.getElementById('in-beleg').checked = false;
+}
+
+// ================= PDF-Text einlesen =================
+function parsePdf(){
+  const text = document.getElementById('pdf-text').value;
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+  const dateLineRe = /^(\d{2})\/(\d{2})\s+(.*)$/;
+  const amountLineRe = /^([+-])\s*([\d.,]+)\s*EUR$/;
+
+  const results = [];
+  let current = null;
+
+  for(const line of lines){
+    const dateMatch = line.match(dateLineRe);
+    const amountMatch = line.match(amountLineRe);
+
+    if(dateMatch){
+      current = { tag: dateMatch[1], monatNr: dateMatch[2], beschreibung: [dateMatch[3]] };
+      continue;
+    }
+    if(amountMatch && current){
+      const betrag = parseFloat(amountMatch[2].replace(/\./g,'').replace(',', '.')) || parseFloat(amountMatch[2]);
+      const signed = amountMatch[1] === '-' ? -Math.abs(betrag) : Math.abs(betrag);
+      results.push({
+        tag: current.tag,
+        monatNr: current.monatNr,
+        beschreibung: current.beschreibung.join(' / '),
+        betrag: signed
+      });
+      current = null;
+      continue;
+    }
+    if(current){
+      current.beschreibung.push(line);
+    }
+  }
+  renderPdfPreview(results);
+}
+
+function renderPdfPreview(results){
+  const wrap = document.getElementById('pdf-preview-wrap');
+  if(results.length === 0){
+    wrap.innerHTML = '<p class="empty-note">Keine Buchungszeilen erkannt. Format des eingefügten Texts prüfen.</p>';
+    return;
+  }
+  const rows = results.map((r,i) => `
+    <tr>
+      <td><input type="checkbox" class="checkall pdf-row-check" data-i="${i}" checked></td>
+      <td><input type="text" value="${r.tag}/${r.monatNr}" data-field="datum" data-i="${i}" style="width:70px;"></td>
+      <td><input type="text" value="${r.beschreibung.replace(/"/g,'&quot;')}" data-field="beschreibung" data-i="${i}" style="width:260px;"></td>
+      <td><input type="number" step="0.01" value="${r.betrag}" data-field="betrag" data-i="${i}" style="width:90px;"></td>
+      <td>
+        <select data-field="typ" data-i="${i}" style="width:80px;">
+          <option value="Bank">Bank</option>
+          <option value="Bar">Bar</option>
+        </select>
+      </td>
+    </tr>
+  `).join('');
+
+  wrap.innerHTML = `
+    <p style="margin-top:0;font-size:13px;">${results.length} Zeilen erkannt — prüfen, ggf. korrigieren, dann übernehmen.</p>
+    <table>
+      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th>Betrag</th><th>Typ</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <button onclick="confirmPdfImport(${JSON.stringify(results).replace(/"/g,'&quot;')})">Ausgewählte übernehmen</button>
+    <div id="pdf-import-status" class="helptext"></div>
+  `;
+}
+
+async function confirmPdfImport(originalResults){
+  const jahr = parseInt(document.getElementById('pdf-jahr').value, 10);
+  const statusEl = document.getElementById('pdf-import-status');
+  if(!jahr){
+    statusEl.textContent = "Bitte oben das Jahr des Auszugs angeben.";
+    statusEl.style.color = "var(--red)";
+    return;
+  }
+
+  const rows = document.querySelectorAll('#pdf-preview-wrap tbody tr');
+  const { data: { session } } = await sb.auth.getSession();
+  const toInsert = [];
+
+  rows.forEach((row, i) => {
+    const checked = row.querySelector('.pdf-row-check').checked;
+    if(!checked) return;
+    const datumStr = row.querySelector('[data-field="datum"]').value;
+    const beschreibung = row.querySelector('[data-field="beschreibung"]').value;
+    const betrag = parseFloat(row.querySelector('[data-field="betrag"]').value);
+    const typ = row.querySelector('[data-field="typ"]').value;
+    const [tag, monatNr] = datumStr.split('/');
+    if(!tag || !monatNr || isNaN(betrag)) return;
+
+    const datum = `${jahr}-${monatNr.padStart(2,'0')}-${tag.padStart(2,'0')}`;
+    toInsert.push({
+      jahr,
+      monat: parseInt(monatNr, 10),
+      datum,
+      typ,
+      beschreibung,
+      betrag,
+      beleg_gefunden: false,
+      erstellt_von: session.user.email
+    });
+  });
+
+  if(toInsert.length === 0){
+    statusEl.textContent = "Keine Zeile ausgewählt.";
+    statusEl.style.color = "var(--red)";
+    return;
+  }
+
+  const { error } = await sb.from('transactions').insert(toInsert);
+  if(error){
+    statusEl.textContent = "Fehler beim Speichern: " + error.message;
+    statusEl.style.color = "var(--red)";
+    return;
+  }
+  statusEl.textContent = toInsert.length + " Buchungen übernommen.";
+  statusEl.style.color = "var(--green)";
+  document.getElementById('pdf-text').value = "";
+  document.getElementById('pdf-preview-wrap').innerHTML = "";
+}
+
+// ================= Monatsübersicht =================
+async function loadMonat(){
+  const monat = parseInt(document.getElementById('monat-monat').value, 10);
+  const jahr = parseInt(document.getElementById('monat-jahr').value, 10);
+
+  const { data, error } = await sb.from('transactions')
+    .select('*')
+    .eq('jahr', jahr).eq('monat', monat)
+    .order('datum', { ascending: true });
+
+  const content = document.getElementById('monat-content');
+  if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
+
+  const offen = (data || []).filter(r => !r.beleg_gefunden).length;
+  const badge = document.getElementById('monat-badge');
+  if((data||[]).length === 0){
+    badge.textContent = "keine Buchungen";
+    badge.className = "badge";
+  } else if(offen === 0){
+    badge.textContent = "alle Belege vorhanden";
+    badge.className = "badge ok";
+  } else {
+    badge.textContent = offen + " Beleg(e) fehlen noch";
+    badge.className = "badge";
+  }
+
+  if(!data || data.length === 0){
+    content.innerHTML = '<p class="empty-note">Keine Buchungen für diesen Monat.</p>';
+    return;
+  }
+
+  content.innerHTML = renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
+                       renderTypeBlock('Bar', data.filter(r=>r.typ==='Bar'));
+}
+
+function renderTypeBlock(typ, rows){
+  if(rows.length === 0) return '';
+  const einnahmen = rows.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
+  const ausgaben = rows.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
+
+  const body = rows.map(r => `
+    <tr>
+      <td>${r.datum ? r.datum.split('-').reverse().join('.') : '–'}</td>
+      <td>${r.beschreibung}</td>
+      <td class="amount ${r.betrag<0?'neg':'pos'}">${formatEUR(r.betrag)}</td>
+      <td><div class="beleg-toggle ${r.beleg_gefunden?'checked':''}" onclick="toggleBeleg('${r.id}', ${!r.beleg_gefunden})"></div></td>
+      <td class="row-actions"><button class="danger" onclick="deleteRow('${r.id}')">Löschen</button></td>
+    </tr>
+  `).join('');
+
+  return `
+    <h3 style="margin-top:22px;">${typ}</h3>
+    <table>
+      <thead><tr><th style="width:90px;">Datum</th><th>Beschreibung</th><th style="width:110px;">Betrag</th><th style="width:70px;">Beleg</th><th style="width:80px;"></th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot>
+        <tr class="subtotal-row"><td colspan="2">Einnahmen</td><td class="amount pos">${formatEUR(einnahmen)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td colspan="2">Ausgaben</td><td class="amount neg">${formatEUR(ausgaben)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td colspan="2">Saldo ${typ}</td><td class="amount">${formatEUR(einnahmen+ausgaben)}</td><td colspan="2"></td></tr>
+      </tfoot>
+    </table>
+  `;
+}
+
+async function toggleBeleg(id, newValue){
+  await sb.from('transactions').update({ beleg_gefunden: newValue }).eq('id', id);
+  loadMonat();
+}
+
+async function deleteRow(id){
+  if(!confirm('Diese Buchung wirklich löschen?')) return;
+  await sb.from('transactions').delete().eq('id', id);
+  loadMonat();
+}
+
+// ================= Jahresübersicht =================
+async function loadJahr(){
+  const jahr = parseInt(document.getElementById('jahr-jahr').value, 10);
+  const { data, error } = await sb.from('transactions').select('*').eq('jahr', jahr);
+  const content = document.getElementById('jahr-content');
+  if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
+
+  if(!data || data.length === 0){
+    content.innerHTML = '<p class="empty-note">Keine Buchungen für dieses Jahr.</p>';
+    return;
+  }
+
+  const perMonth = {};
+  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0 };
+  data.forEach(r => {
+    const m = perMonth[r.monat];
+    if(r.betrag > 0) m.einnahmen += r.betrag; else m.ausgaben += r.betrag;
+    if(!r.beleg_gefunden) m.offen++;
+    m.gesamt++;
+  });
+
+  let totalEin = 0, totalAus = 0, totalOffen = 0;
+  const rows = MONTH_NAMES.map((name, i) => {
+    const m = perMonth[i+1];
+    if(m.gesamt === 0) return '';
+    totalEin += m.einnahmen; totalAus += m.ausgaben; totalOffen += m.offen;
+    return `
+      <tr>
+        <td>${name}</td>
+        <td class="amount pos">${formatEUR(m.einnahmen)}</td>
+        <td class="amount neg">${formatEUR(m.ausgaben)}</td>
+        <td class="amount">${formatEUR(m.einnahmen+m.ausgaben)}</td>
+        <td>${m.offen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+m.offen+' offen</span>'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  content.innerHTML = `
+    <table>
+      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Belege</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot>
+        <tr class="subtotal-row">
+          <td>Jahr gesamt</td>
+          <td class="amount pos">${formatEUR(totalEin)}</td>
+          <td class="amount neg">${formatEUR(totalAus)}</td>
+          <td class="amount">${formatEUR(totalEin+totalAus)}</td>
+          <td>${totalOffen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+totalOffen+' offen</span>'}</td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+}
+</script>
+</body>
+</html>
