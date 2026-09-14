@@ -179,6 +179,24 @@
   .status-select{min-width:120px;}
   .subtotal-row td{font-weight:700;border-top:1px solid var(--border);background:var(--surface-2);}
 
+  .status-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+  .stat-box{
+    flex:1;
+    min-width:140px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:12px 14px;
+  }
+  .stat-box .stat-label{font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-soft);margin-bottom:4px;}
+  .stat-box .stat-value{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .stat-box.ok{border-color:var(--green);}
+  .stat-box.ok .stat-value{color:var(--green);}
+  .stat-box.warn{border-color:var(--amber);}
+  .stat-box.warn .stat-value{color:var(--amber);}
+  .stat-box.skip{border-color:var(--grey);}
+  .stat-box.skip .stat-value{color:var(--grey);}
+
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px;margin-bottom:10px;}
   .form-grid .full{grid-column:1 / -1;}
   .month-picker{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;}
@@ -483,7 +501,10 @@ function parsePdf(){
       continue;
     }
     if(amountMatch && current){
-      const betrag = parseFloat(amountMatch[2].replace(/\./g,'').replace(',', '.')) || parseFloat(amountMatch[2]);
+      const raw = amountMatch[2];
+      const betrag = raw.includes(',')
+        ? parseFloat(raw.replace(/\./g,'').replace(',', '.'))
+        : parseFloat(raw);
       const signed = amountMatch[1] === '-' ? -Math.abs(betrag) : Math.abs(betrag);
       results.push({
         tag: current.tag,
@@ -623,7 +644,29 @@ async function loadMonat(){
     return;
   }
 
-  content.innerHTML = renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
+  const sumBelegt = data.filter(r => r.beleg_gefunden).reduce((s,r) => s + r.betrag, 0);
+  const sumFehlt = data.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).reduce((s,r) => s + r.betrag, 0);
+  const sumSkip = data.filter(r => r.nicht_auffindbar).reduce((s,r) => s + r.betrag, 0);
+
+  const summaryHtml = `
+    <div class="status-summary">
+      <div class="stat-box ok">
+        <div class="stat-label">Belegt</div>
+        <div class="stat-value">${formatEUR(sumBelegt)}</div>
+      </div>
+      <div class="stat-box warn">
+        <div class="stat-label">Fehlt noch</div>
+        <div class="stat-value">${formatEUR(sumFehlt)}</div>
+      </div>
+      <div class="stat-box skip">
+        <div class="stat-label">Nicht auffindbar</div>
+        <div class="stat-value">${formatEUR(sumSkip)}</div>
+      </div>
+    </div>
+  `;
+
+  content.innerHTML = summaryHtml +
+                       renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
                        renderTypeBlock('Bar', data.filter(r=>r.typ==='Bar'));
 }
 
@@ -764,34 +807,53 @@ async function loadJahr(){
   }
 
   const perMonth = {};
-  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0 };
+  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0, belegt:0, fehlt:0, skip:0 };
   data.forEach(r => {
     const m = perMonth[r.monat];
     if(r.betrag > 0) m.einnahmen += r.betrag; else m.ausgaben += r.betrag;
-    if(!r.beleg_gefunden && !r.nicht_auffindbar) m.offen++;
+    if(r.beleg_gefunden){ m.belegt += r.betrag; }
+    else if(r.nicht_auffindbar){ m.skip += r.betrag; }
+    else { m.fehlt += r.betrag; m.offen++; }
     m.gesamt++;
   });
 
-  let totalEin = 0, totalAus = 0, totalOffen = 0;
+  let totalEin = 0, totalAus = 0, totalOffen = 0, totalBelegt = 0, totalFehlt = 0, totalSkip = 0;
   const rows = MONTH_NAMES.map((name, i) => {
     const m = perMonth[i+1];
     if(m.gesamt === 0) return '';
     totalEin += m.einnahmen; totalAus += m.ausgaben; totalOffen += m.offen;
+    totalBelegt += m.belegt; totalFehlt += m.fehlt; totalSkip += m.skip;
     return `
       <tr>
         <td>${name}</td>
         <td class="amount pos">${formatEUR(m.einnahmen)}</td>
         <td class="amount neg">${formatEUR(m.ausgaben)}</td>
         <td class="amount">${formatEUR(m.einnahmen+m.ausgaben)}</td>
+        <td class="amount" style="color:var(--green);">${formatEUR(m.belegt)}</td>
+        <td class="amount" style="color:var(--amber);">${formatEUR(m.fehlt)}</td>
         <td>${m.offen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+m.offen+' offen</span>'}</td>
       </tr>
     `;
   }).join('');
 
   content.innerHTML = `
+    <div class="status-summary">
+      <div class="stat-box ok">
+        <div class="stat-label">Belegt (Jahr)</div>
+        <div class="stat-value">${formatEUR(totalBelegt)}</div>
+      </div>
+      <div class="stat-box warn">
+        <div class="stat-label">Fehlt noch (Jahr)</div>
+        <div class="stat-value">${formatEUR(totalFehlt)}</div>
+      </div>
+      <div class="stat-box skip">
+        <div class="stat-label">Nicht auffindbar (Jahr)</div>
+        <div class="stat-value">${formatEUR(totalSkip)}</div>
+      </div>
+    </div>
     <div class="table-wrap">
     <table>
-      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Belege</th></tr></thead>
+      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Belegt</th><th>Fehlt</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot>
         <tr class="subtotal-row">
@@ -799,6 +861,8 @@ async function loadJahr(){
           <td class="amount pos">${formatEUR(totalEin)}</td>
           <td class="amount neg">${formatEUR(totalAus)}</td>
           <td class="amount">${formatEUR(totalEin+totalAus)}</td>
+          <td class="amount" style="color:var(--green);">${formatEUR(totalBelegt)}</td>
+          <td class="amount" style="color:var(--amber);">${formatEUR(totalFehlt)}</td>
           <td>${totalOffen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+totalOffen+' offen</span>'}</td>
         </tr>
       </tfoot>
