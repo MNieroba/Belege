@@ -6,149 +6,176 @@
 <title>Belegkontrolle</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
-    --ink:#1c2a24;
-    --ink-soft:#3d4b45;
-    --paper:#eef1ec;
-    --paper-raised:#f7f8f5;
-    --line:#c9cfc6;
-    --navy:#233129;
-    --green:#1f6d4c;
-    --green-bg:#e3efe6;
-    --amber:#a8721f;
-    --amber-bg:#f4ead6;
-    --red:#a5382f;
+    --bg:#0b0b0d;
+    --surface:#17181b;
+    --surface-2:#202126;
+    --border:#2b2c31;
+    --text:#f2f2f3;
+    --text-soft:#96979e;
+    --red:#ff0000;
+    --red-dim:#c40000;
+    --red-bg:rgba(255,0,0,0.12);
+    --green:#2fbf71;
+    --green-bg:rgba(47,191,113,0.14);
+    --amber:#f2a93b;
+    --amber-bg:rgba(242,169,59,0.14);
   }
   *{box-sizing:border-box;}
   body{
     margin:0;
-    font-family:'IBM Plex Mono', monospace;
-    background:var(--paper);
-    color:var(--ink);
+    font-family:'Inter', sans-serif;
+    background:var(--bg);
+    color:var(--text);
     font-size:14px;
   }
   h1,h2,h3{
-    font-family:'Fraunces', serif;
-    font-weight:600;
+    font-family:'Archivo', sans-serif;
+    font-weight:800;
+    letter-spacing:-0.01em;
     margin:0 0 4px 0;
-    letter-spacing:0.2px;
   }
   .hidden{display:none !important;}
 
-  /* ---- Login ---- */
+  .brand{display:flex;align-items:center;gap:10px;}
+  .brand-mark{
+    width:30px;height:30px;
+    background:var(--red);
+    border-radius:6px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Archivo', sans-serif;
+    font-weight:900;
+    color:#fff;
+    font-size:16px;
+    flex-shrink:0;
+  }
+
   #login-screen{
     min-height:100vh;
     display:flex;
     align-items:center;
     justify-content:center;
-    background:var(--navy);
+    background:radial-gradient(circle at 50% 0%, #1a0000 0%, var(--bg) 55%);
   }
   .login-card{
-    background:var(--paper-raised);
-    padding:40px 36px;
+    background:var(--surface);
+    padding:36px 32px;
     width:320px;
-    border-top:3px solid var(--green);
+    border-radius:14px;
+    border:1px solid var(--border);
   }
-  .login-card h1{font-size:26px;color:var(--navy);}
-  .login-card p{color:var(--ink-soft);margin:0 0 22px 0;font-size:13px;}
+  .login-card .brand{margin-bottom:18px;}
+  .login-card h1{font-size:21px;color:var(--text);}
+  .login-card p{color:var(--text-soft);margin:0 0 22px 0;font-size:13px;line-height:1.5;}
   .field{margin-bottom:14px;}
-  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--ink-soft);margin-bottom:5px;}
+  .field label{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-soft);margin-bottom:6px;}
   input, select, textarea{
     width:100%;
-    font-family:'IBM Plex Mono', monospace;
+    font-family:'Inter', sans-serif;
     font-size:14px;
-    padding:9px 10px;
-    border:1px solid var(--line);
-    background:#fff;
-    color:var(--ink);
+    padding:10px 12px;
+    border-radius:8px;
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--text);
   }
+  input:focus, select:focus, textarea:focus{outline:none;border-color:var(--red);}
   button{
-    font-family:'IBM Plex Mono', monospace;
+    font-family:'Inter', sans-serif;
     font-size:13px;
-    font-weight:500;
+    font-weight:600;
     cursor:pointer;
-    border:1px solid var(--navy);
-    background:var(--navy);
+    border:none;
+    border-radius:8px;
+    background:var(--red);
     color:#fff;
-    padding:10px 16px;
+    padding:10px 18px;
+    transition:background 0.15s ease;
   }
-  button:hover{background:#31463a;}
-  button.secondary{background:transparent;color:var(--navy);}
-  button.secondary:hover{background:#e4e7e1;}
-  button.danger{background:transparent;border-color:var(--red);color:var(--red);}
-  button.danger:hover{background:#f6e6e4;}
-  .login-error{color:var(--red);font-size:12px;margin-top:10px;min-height:16px;}
+  button:hover{background:var(--red-dim);}
+  button.secondary{background:var(--surface-2);color:var(--text);border:1px solid var(--border);}
+  button.secondary:hover{background:#26272c;}
+  button.danger{background:transparent;border:1px solid #4a2226;color:#ff6b6b;}
+  button.danger:hover{background:rgba(255,0,0,0.08);}
+  .login-error{color:#ff6b6b;font-size:12px;margin-top:10px;min-height:16px;}
 
-  /* ---- App shell ---- */
   #app{display:flex;min-height:100vh;}
   .sidebar{
-    width:190px;
-    background:var(--navy);
-    color:#dfe6e0;
-    padding:26px 0;
+    width:200px;
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    padding:24px 0;
     flex-shrink:0;
   }
-  .sidebar h1{color:#fff;font-size:19px;padding:0 22px 22px 22px;border-bottom:1px solid #3a4a3e;margin-bottom:10px;}
+  .sidebar .brand{padding:0 20px 22px 20px;border-bottom:1px solid var(--border);margin-bottom:12px;}
+  .sidebar .brand h1{font-size:16px;color:var(--text);margin:0;}
   .nav-item{
-    display:block;
+    display:flex;
+    align-items:center;
     width:100%;
     text-align:left;
     background:none;
     border:none;
-    color:#c3cec6;
-    padding:11px 22px;
+    border-left:3px solid transparent;
+    color:var(--text-soft);
+    padding:11px 20px;
     font-size:13px;
+    font-weight:500;
+    border-radius:0;
   }
-  .nav-item:hover{background:#2c3d33;color:#fff;}
-  .nav-item.active{background:var(--paper);color:var(--navy);font-weight:600;}
-  .sidebar-foot{padding:16px 22px;margin-top:20px;border-top:1px solid #3a4a3e;}
-  .sidebar-foot .user-email{font-size:11px;color:#93a29a;margin-bottom:8px;word-break:break-all;}
+  .nav-item:hover{background:var(--surface-2);color:var(--text);}
+  .nav-item.active{background:var(--red-bg);color:var(--text);border-left-color:var(--red);font-weight:600;}
+  .sidebar-foot{padding:16px 20px;margin-top:20px;border-top:1px solid var(--border);}
+  .sidebar-foot .user-email{font-size:11px;color:var(--text-soft);margin-bottom:10px;word-break:break-all;}
 
-  main{flex:1;padding:34px 40px;max-width:960px;}
-  .view-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;flex-wrap:wrap;gap:10px;}
+  main{flex:1;padding:34px 40px;max-width:980px;}
+  .view-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:22px;flex-wrap:wrap;gap:10px;}
   .badge{
     display:inline-block;
     font-size:11px;
-    padding:3px 9px;
+    font-weight:600;
+    padding:4px 11px;
+    border-radius:999px;
     border:1px solid var(--amber);
     color:var(--amber);
     background:var(--amber-bg);
   }
   .badge.ok{border-color:var(--green);color:var(--green);background:var(--green-bg);}
 
-  table{width:100%;border-collapse:collapse;margin-bottom:22px;}
+  table{width:100%;border-collapse:separate;border-spacing:0;margin-bottom:22px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
   thead th{
     text-align:left;
     font-size:11px;
+    font-weight:600;
     text-transform:uppercase;
-    letter-spacing:0.06em;
-    color:var(--ink-soft);
-    border-bottom:2px solid var(--ink);
-    padding:6px 8px;
+    letter-spacing:0.05em;
+    color:var(--text-soft);
+    background:var(--surface-2);
+    padding:10px 12px;
   }
   tbody td{
-    padding:8px 8px;
-    border-bottom:1px solid var(--line);
+    padding:10px 12px;
+    border-top:1px solid var(--border);
     vertical-align:middle;
   }
-  tbody tr:hover{background:var(--paper-raised);}
-  td.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
-  td.amount.neg{color:var(--red);}
+  tbody tr:hover{background:var(--surface-2);}
+  td.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
+  td.amount.neg{color:#ff6b6b;}
   td.amount.pos{color:var(--green);}
-  .type-tag{font-size:10px;padding:2px 6px;border:1px solid var(--line);color:var(--ink-soft);}
   .beleg-toggle{
     width:20px;height:20px;
-    border:1.5px solid var(--line);
+    border:1.5px solid var(--border);
+    border-radius:999px;
     cursor:pointer;
     display:inline-block;
-    background:#fff;
+    background:var(--surface-2);
   }
   .beleg-toggle.checked{background:var(--green);border-color:var(--green);}
-  .row-actions button{padding:3px 7px;font-size:11px;}
-  .subtotal-row td{font-weight:600;border-top:1px solid var(--ink);border-bottom:none;}
+  .row-actions button{padding:4px 9px;font-size:11px;}
+  .subtotal-row td{font-weight:700;border-top:1px solid var(--border);background:var(--surface-2);}
 
   .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:520px;margin-bottom:10px;}
   .form-grid .full{grid-column:1 / -1;}
@@ -156,17 +183,17 @@
   .month-picker select{width:auto;}
 
   #pdf-preview-wrap{margin-top:20px;}
-  #pdf-preview-wrap table input{padding:5px 6px;font-size:12px;}
+  #pdf-preview-wrap table input{padding:6px 8px;font-size:12px;background:var(--surface-2);}
   .checkall{width:16px;height:16px;}
-  .empty-note{color:var(--ink-soft);font-style:italic;font-size:13px;padding:14px 0;}
-  .helptext{color:var(--ink-soft);font-size:12px;margin:-8px 0 16px 0;max-width:520px;}
+  .empty-note{color:var(--text-soft);font-style:italic;font-size:13px;padding:14px 0;}
+  .helptext{color:var(--text-soft);font-size:12px;margin:-8px 0 16px 0;max-width:520px;}
 </style>
 </head>
 <body>
 
 <div id="login-screen">
   <div class="login-card">
-    <h1>Belegkontrolle</h1>
+    <div class="brand"><div class="brand-mark">B</div><h1>Belegkontrolle</h1></div>
     <p>Interne Kontrolle vor der Übergabe an den Steuerberater.</p>
     <div class="field">
       <label for="login-email">E-Mail</label>
@@ -183,7 +210,7 @@
 
 <div id="app" class="hidden">
   <aside class="sidebar">
-    <h1>Belegkontrolle</h1>
+    <div class="brand"><div class="brand-mark">B</div><h1>Belegkontrolle</h1></div>
     <button class="nav-item active" data-view="eingabe" onclick="switchView('eingabe')">Eingabe</button>
     <button class="nav-item" data-view="pdf" onclick="switchView('pdf')">PDF einlesen</button>
     <button class="nav-item" data-view="monat" onclick="switchView('monat')">Monatsübersicht</button>
@@ -272,14 +299,12 @@
 </div>
 
 <script>
-// ================= Konfiguration =================
 const SUPABASE_URL = "https://uruzvjpaqangracysigp.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_Ch-bJoOYR5K_sI7A_17Z5A_YyY_MY-l";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const MONTH_NAMES = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 
-// ================= Auth =================
 async function login(){
   const email = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
@@ -314,7 +339,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('pdf-jahr').value = new Date().getFullYear();
 });
 
-// ================= Navigation =================
 function switchView(name){
   ['eingabe','pdf','monat','jahr'].forEach(v => {
     document.getElementById('view-'+v).classList.toggle('hidden', v !== name);
@@ -339,12 +363,10 @@ function initPickers(){
   jahrSel2.innerHTML = years.map(y => `<option value="${y}" ${y===now.getFullYear()?'selected':''}>${y}</option>`).join('');
 }
 
-// ================= Helpers =================
 function formatEUR(n){
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 }
 
-// ================= Manuelle Eingabe =================
 async function submitManuell(){
   const datum = document.getElementById('in-datum').value;
   const typ = document.getElementById('in-typ').value;
@@ -355,7 +377,7 @@ async function submitManuell(){
 
   if(!datum || !beschreibung || isNaN(betrag)){
     statusEl.textContent = "Bitte Datum, Beschreibung und Betrag ausfüllen.";
-    statusEl.style.color = "var(--red)";
+    statusEl.style.color = "#ff6b6b";
     return;
   }
   const d = new Date(datum);
@@ -374,17 +396,16 @@ async function submitManuell(){
 
   if(error){
     statusEl.textContent = "Fehler beim Speichern: " + error.message;
-    statusEl.style.color = "var(--red)";
+    statusEl.style.color = "#ff6b6b";
     return;
   }
   statusEl.textContent = "Gespeichert.";
-  statusEl.style.color = "var(--green)";
+  statusEl.style.color = "#2fbf71";
   document.getElementById('in-beschreibung').value = "";
   document.getElementById('in-betrag').value = "";
   document.getElementById('in-beleg').checked = false;
 }
 
-// ================= PDF-Text einlesen =================
 function parsePdf(){
   const text = document.getElementById('pdf-text').value;
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -459,7 +480,7 @@ async function confirmPdfImport(originalResults){
   const statusEl = document.getElementById('pdf-import-status');
   if(!jahr){
     statusEl.textContent = "Bitte oben das Jahr des Auszugs angeben.";
-    statusEl.style.color = "var(--red)";
+    statusEl.style.color = "#ff6b6b";
     return;
   }
 
@@ -492,23 +513,22 @@ async function confirmPdfImport(originalResults){
 
   if(toInsert.length === 0){
     statusEl.textContent = "Keine Zeile ausgewählt.";
-    statusEl.style.color = "var(--red)";
+    statusEl.style.color = "#ff6b6b";
     return;
   }
 
   const { error } = await sb.from('transactions').insert(toInsert);
   if(error){
     statusEl.textContent = "Fehler beim Speichern: " + error.message;
-    statusEl.style.color = "var(--red)";
+    statusEl.style.color = "#ff6b6b";
     return;
   }
   statusEl.textContent = toInsert.length + " Buchungen übernommen.";
-  statusEl.style.color = "var(--green)";
+  statusEl.style.color = "#2fbf71";
   document.getElementById('pdf-text').value = "";
   document.getElementById('pdf-preview-wrap').innerHTML = "";
 }
 
-// ================= Monatsübersicht =================
 async function loadMonat(){
   const monat = parseInt(document.getElementById('monat-monat').value, 10);
   const jahr = parseInt(document.getElementById('monat-jahr').value, 10);
@@ -583,7 +603,6 @@ async function deleteRow(id){
   loadMonat();
 }
 
-// ================= Jahresübersicht =================
 async function loadJahr(){
   const jahr = parseInt(document.getElementById('jahr-jahr').value, 10);
   const { data, error } = await sb.from('transactions').select('*').eq('jahr', jahr);
