@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 <style>
   :root{
     --bg:#0b0b0d;
@@ -299,6 +300,11 @@
     <!-- BAR BELEGE (manuelle Eingabe) -->
     <section id="view-eingabe" class="hidden">
       <div class="view-header"><h2>Bar Beleg eintragen</h2></div>
+      <div class="field full" style="max-width:520px;">
+        <label>Beleg-Foto automatisch auslesen (Beta)</label>
+        <input type="file" id="in-foto" accept="image/*" capture="environment">
+      </div>
+      <p class="helptext" id="foto-status">Foto von Kassenzettel/Rechnung — Betrag und Datum werden versucht zu erkennen und ins Formular unten eingetragen. Bitte immer prüfen, die Erkennung ist nicht perfekt.</p>
       <div class="form-grid">
         <div class="field">
           <label>Datum</label>
@@ -408,6 +414,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   const fileInput = document.getElementById('pdf-file');
   if(fileInput){ fileInput.addEventListener('change', handlePdfFile); }
+
+  const fotoInput = document.getElementById('in-foto');
+  if(fotoInput){ fotoInput.addEventListener('change', handleReceiptPhoto); }
 });
 
 // ================= Navigation =================
@@ -556,6 +565,48 @@ async function submitManuell(){
 
 // ================= PDF-Datei einlesen =================
 pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+// ================= Beleg-Foto einlesen (Beta) =================
+function parseGermanNumber(s){
+  if(s.includes(',')){
+    return parseFloat(s.replace(/\./g,'').replace(',', '.'));
+  }
+  return parseFloat(s);
+}
+
+async function handleReceiptPhoto(event){
+  const file = event.target.files[0];
+  const statusEl = document.getElementById('foto-status');
+  if(!file) return;
+  statusEl.textContent = "Foto wird gelesen ... (kann bis zu 30 Sekunden dauern)";
+  statusEl.style.color = "var(--text-soft)";
+  try{
+    const { data: { text } } = await Tesseract.recognize(file, 'deu');
+
+    const amountMatches = [...text.matchAll(/\d{1,3}(?:[.,]\d{3})*[.,]\d{2}/g)].map(m => m[0]);
+    if(amountMatches.length){
+      const parsed = amountMatches.map(parseGermanNumber).filter(n => !isNaN(n));
+      if(parsed.length){
+        const bestAmount = Math.max(...parsed);
+        document.getElementById('in-betrag').value = (-Math.abs(bestAmount)).toFixed(2);
+      }
+    }
+
+    const dateMatch = text.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{2,4})/);
+    if(dateMatch){
+      let [, dd, mm, yy] = dateMatch;
+      if(yy.length === 2) yy = '20' + yy;
+      const iso = `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+      document.getElementById('in-datum').value = iso;
+    }
+
+    statusEl.textContent = "Erkannt — bitte Betrag, Datum und Beschreibung unten prüfen, bevor du speicherst.";
+    statusEl.style.color = "var(--green)";
+  } catch(err){
+    statusEl.textContent = "Konnte Foto nicht lesen: " + err.message;
+    statusEl.style.color = "#ff6b6b";
+  }
+}
 
 async function handlePdfFile(event){
   const file = event.target.files[0];
@@ -913,8 +964,9 @@ async function updateNotiz(id, value){
 
 function renderTypeBlock(typ, rows){
   if(rows.length === 0) return '';
-  const einnahmen = rows.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
-  const ausgaben = rows.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
+  const bizRows = rows.filter(r => !r.privat);
+  const einnahmen = bizRows.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
+  const ausgaben = bizRows.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
 
   const body = rows.map(r => {
     if(r.id === editingRowId){
