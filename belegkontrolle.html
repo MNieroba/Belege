@@ -195,6 +195,11 @@
   .bulk-toolbar button{padding:7px 12px;font-size:12px;}
   .row-check{width:16px;height:16px;}
 
+  .filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;}
+  .filter-btn{background:var(--surface-2);color:var(--text-soft);border:1px solid var(--border);padding:7px 14px;border-radius:999px;font-size:12px;font-weight:600;}
+  .filter-btn:hover{color:var(--text);}
+  .filter-btn.active{background:var(--red);color:#fff;border-color:var(--red);}
+
   .status-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
   .stat-box{
     flex:1;
@@ -325,6 +330,12 @@
         <select id="monat-monat"></select>
         <select id="monat-jahr"></select>
         <button class="secondary" onclick="loadMonat()">Anzeigen</button>
+      </div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="alle" onclick="setStatusFilter('alle')">Alle</button>
+        <button class="filter-btn" data-filter="offen" onclick="setStatusFilter('offen')">Fehlt noch</button>
+        <button class="filter-btn" data-filter="gefunden" onclick="setStatusFilter('gefunden')">Gefunden</button>
+        <button class="filter-btn" data-filter="skip" onclick="setStatusFilter('skip')">Nicht auffindbar</button>
       </div>
       <div id="monat-content"></div>
     </section>
@@ -631,6 +642,13 @@ async function confirmPdfImport(){
 let editingRowId = null;
 let currentMonatData = [];
 let selectedIds = new Set();
+let statusFilter = 'alle';
+
+function setStatusFilter(filter){
+  statusFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === filter));
+  renderMonatContent();
+}
 
 async function loadMonat(){
   const monat = parseInt(document.getElementById('monat-monat').value, 10);
@@ -647,6 +665,8 @@ async function loadMonat(){
   currentMonatData = data || [];
   selectedIds = new Set();
   editingRowId = null;
+  statusFilter = 'alle';
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'alle'));
   renderMonatContent();
 }
 
@@ -695,8 +715,25 @@ function renderMonatContent(){
 
   content.innerHTML = summaryHtml +
                        bulkToolbarHtml() +
-                       renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
-                       renderTypeBlock('Bar', data.filter(r=>r.typ==='Bar'));
+                       renderFilteredTables(data);
+}
+
+function renderFilteredTables(data){
+  let filtered = data;
+  if(statusFilter === 'offen'){
+    filtered = data.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar);
+  } else if(statusFilter === 'gefunden'){
+    filtered = data.filter(r => r.beleg_gefunden);
+  } else if(statusFilter === 'skip'){
+    filtered = data.filter(r => r.nicht_auffindbar);
+  }
+
+  if(filtered.length === 0){
+    return '<p class="empty-note">Keine Buchungen mit diesem Filter.</p>';
+  }
+
+  return renderTypeBlock('Bank', filtered.filter(r=>r.typ==='Bank')) +
+         renderTypeBlock('Bar', filtered.filter(r=>r.typ==='Bar'));
 }
 
 function bulkToolbarHtml(){
