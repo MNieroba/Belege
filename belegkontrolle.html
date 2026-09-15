@@ -481,8 +481,8 @@ function overviewTableHtml(rows){
 function statusStatsHtml(rows){
   const biz = rows.filter(r => !r.privat);
   const sumBelegt = biz.filter(r => r.beleg_gefunden).reduce((s,r) => s + r.betrag, 0);
-  const sumFehlt = biz.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).reduce((s,r) => s + r.betrag, 0);
-  const sumSkip = biz.filter(r => r.nicht_auffindbar).reduce((s,r) => s + r.betrag, 0);
+  const sumFehlt = biz.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).reduce((s,r) => s - Math.abs(r.betrag), 0);
+  const sumSkip = biz.filter(r => r.nicht_auffindbar).reduce((s,r) => s - Math.abs(r.betrag), 0);
   const sumPrivat = rows.filter(r => r.privat).reduce((s,r) => s + r.betrag, 0);
 
   return `
@@ -1053,10 +1053,10 @@ async function loadJahr(){
       m.belegt += r.betrag;
       m.geprueft += r.betrag;
     } else if(r.nicht_auffindbar){
-      m.skip += r.betrag;
+      m.skip -= Math.abs(r.betrag);
       m.geprueft -= Math.abs(r.betrag);
     } else {
-      m.fehlt += r.betrag;
+      m.fehlt -= Math.abs(r.betrag);
       m.offen++;
       m.geprueft -= Math.abs(r.betrag);
     }
