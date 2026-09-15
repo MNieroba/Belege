@@ -179,6 +179,22 @@
   .status-select{min-width:120px;}
   .subtotal-row td{font-weight:700;border-top:1px solid var(--border);background:var(--surface-2);}
 
+  .bulk-toolbar{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    flex-wrap:wrap;
+    background:var(--surface-2);
+    border:1px solid var(--red);
+    border-radius:10px;
+    padding:10px 14px;
+    margin-bottom:16px;
+    font-size:13px;
+  }
+  .bulk-toolbar .count{font-weight:600;}
+  .bulk-toolbar button{padding:7px 12px;font-size:12px;}
+  .row-check{width:16px;height:16px;}
+
   .status-summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
   .stat-box{
     flex:1;
@@ -613,6 +629,8 @@ async function confirmPdfImport(){
 }
 
 let editingRowId = null;
+let currentMonatData = [];
+let selectedIds = new Set();
 
 async function loadMonat(){
   const monat = parseInt(document.getElementById('monat-monat').value, 10);
@@ -626,9 +644,19 @@ async function loadMonat(){
   const content = document.getElementById('monat-content');
   if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
 
-  const offen = (data || []).filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).length;
+  currentMonatData = data || [];
+  selectedIds = new Set();
+  editingRowId = null;
+  renderMonatContent();
+}
+
+function renderMonatContent(){
+  const data = currentMonatData;
+  const content = document.getElementById('monat-content');
+
+  const offen = data.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).length;
   const badge = document.getElementById('monat-badge');
-  if((data||[]).length === 0){
+  if(data.length === 0){
     badge.textContent = "keine Buchungen";
     badge.className = "badge";
   } else if(offen === 0){
@@ -639,7 +667,7 @@ async function loadMonat(){
     badge.className = "badge";
   }
 
-  if(!data || data.length === 0){
+  if(data.length === 0){
     content.innerHTML = '<p class="empty-note">Keine Buchungen für diesen Monat.</p>';
     return;
   }
@@ -666,8 +694,53 @@ async function loadMonat(){
   `;
 
   content.innerHTML = summaryHtml +
+                       bulkToolbarHtml() +
                        renderTypeBlock('Bank', data.filter(r=>r.typ==='Bank')) +
                        renderTypeBlock('Bar', data.filter(r=>r.typ==='Bar'));
+}
+
+function bulkToolbarHtml(){
+  if(selectedIds.size === 0) return '';
+  return `
+    <div class="bulk-toolbar">
+      <span class="count">${selectedIds.size} ausgewählt</span>
+      <button onclick="bulkUpdateStatus('gefunden')">Als gefunden markieren</button>
+      <button class="secondary" onclick="bulkUpdateStatus('skip')">Als nicht auffindbar</button>
+      <button class="secondary" onclick="clearSelection()">Auswahl aufheben</button>
+    </div>
+  `;
+}
+
+function toggleSelect(id){
+  if(selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+  renderMonatContent();
+}
+
+function toggleSelectAllBlock(checkbox){
+  const ids = checkbox.dataset.ids.split(',').filter(Boolean);
+  if(checkbox.checked){ ids.forEach(id => selectedIds.add(id)); }
+  else { ids.forEach(id => selectedIds.delete(id)); }
+  renderMonatContent();
+}
+
+function clearSelection(){
+  selectedIds.clear();
+  renderMonatContent();
+}
+
+async function bulkUpdateStatus(value){
+  let update = { beleg_gefunden: false, nicht_auffindbar: false, notiz: null };
+  if(value === 'gefunden'){
+    update.beleg_gefunden = true;
+  } else if(value === 'skip'){
+    const note = prompt('Kurze Notiz für alle ausgewählten Buchungen (optional):', '');
+    update.nicht_auffindbar = true;
+    update.notiz = note && note.trim() ? note.trim() : null;
+  }
+  const ids = Array.from(selectedIds);
+  if(ids.length === 0) return;
+  await sb.from('transactions').update(update).in('id', ids);
+  loadMonat();
 }
 
 function statusSelectHtml(r){
@@ -690,6 +763,7 @@ function renderTypeBlock(typ, rows){
     if(r.id === editingRowId){
       return `
         <tr>
+          <td></td>
           <td><input type="date" id="edit-datum-${r.id}" value="${r.datum || ''}" style="width:130px;"></td>
           <td><input type="text" id="edit-beschreibung-${r.id}" value="${(r.beschreibung||'').replace(/"/g,'&quot;')}"></td>
           <td>
@@ -710,6 +784,7 @@ function renderTypeBlock(typ, rows){
     const rowClass = r.beleg_gefunden ? '' : (r.nicht_auffindbar ? 'row-skip' : 'row-missing');
     return `
     <tr class="${rowClass}">
+      <td><input type="checkbox" class="row-check" ${selectedIds.has(r.id)?'checked':''} onchange="toggleSelect('${r.id}')"></td>
       <td>${r.datum ? r.datum.split('-').reverse().join('.') : '–'}</td>
       <td>${r.beschreibung}</td>
       <td class="amount ${r.betrag<0?'neg':'pos'}">${formatEUR(r.betrag)}</td>
@@ -726,12 +801,15 @@ function renderTypeBlock(typ, rows){
     <h3 style="margin-top:22px;">${typ}</h3>
     <div class="table-wrap">
     <table>
-      <thead><tr><th style="width:90px;">Datum</th><th>Beschreibung</th><th style="width:110px;">Betrag</th><th style="width:150px;">Beleg</th><th style="width:150px;"></th></tr></thead>
+      <thead><tr>
+        <th style="width:30px;"><input type="checkbox" class="row-check" data-ids="${rows.map(r=>r.id).join(',')}" onchange="toggleSelectAllBlock(this)"></th>
+        <th style="width:90px;">Datum</th><th>Beschreibung</th><th style="width:110px;">Betrag</th><th style="width:150px;">Beleg</th><th style="width:150px;"></th>
+      </tr></thead>
       <tbody>${body}</tbody>
       <tfoot>
-        <tr class="subtotal-row"><td colspan="2">Einnahmen</td><td class="amount pos">${formatEUR(einnahmen)}</td><td colspan="2"></td></tr>
-        <tr class="subtotal-row"><td colspan="2">Ausgaben</td><td class="amount neg">${formatEUR(ausgaben)}</td><td colspan="2"></td></tr>
-        <tr class="subtotal-row"><td colspan="2">Saldo ${typ}</td><td class="amount">${formatEUR(einnahmen+ausgaben)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td></td><td colspan="2">Einnahmen</td><td class="amount pos">${formatEUR(einnahmen)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td></td><td colspan="2">Ausgaben</td><td class="amount neg">${formatEUR(ausgaben)}</td><td colspan="2"></td></tr>
+        <tr class="subtotal-row"><td></td><td colspan="2">Saldo ${typ}</td><td class="amount">${formatEUR(einnahmen+ausgaben)}</td><td colspan="2"></td></tr>
       </tfoot>
     </table>
     </div>
