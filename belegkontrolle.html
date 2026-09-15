@@ -28,6 +28,8 @@
     --grey:#8b8c92;
     --privat:#6f8fd1;
     --privat-bg:rgba(111,143,209,0.14);
+    --umbuchung:#3fb6c9;
+    --umbuchung-bg:rgba(63,182,201,0.14);
   }
   *{box-sizing:border-box;}
   body{
@@ -174,6 +176,7 @@
   tr.row-missing:hover td{background:rgba(242,169,59,0.16);}
   tr.row-skip td{opacity:0.6;}
   tr.row-privat td{background:var(--privat-bg);}
+  tr.row-umbuchung td{background:var(--umbuchung-bg);}
   td.amount{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600;}
   td.amount.neg{color:#ff6b6b;}
   td.amount.pos{color:var(--green);}
@@ -225,6 +228,8 @@
   .stat-box.skip .stat-value{color:var(--grey);}
   .stat-box.privat{border-color:var(--privat);}
   .stat-box.privat .stat-value{color:var(--privat);}
+  .stat-box.umbuchung{border-color:var(--umbuchung);}
+  .stat-box.umbuchung .stat-value{color:var(--umbuchung);}
 
   .section-label{font-size:12px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-soft);margin:18px 0 8px 0;font-weight:600;}
 
@@ -450,7 +455,7 @@ function formatEUR(n){
 }
 
 function computeStats(rows){
-  const biz = rows.filter(r => !r.privat);
+  const biz = rows.filter(r => !r.privat && !r.umbuchung);
   const einnahmen = biz.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
   const ausgaben = biz.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
   const saldo = einnahmen + ausgaben;
@@ -488,11 +493,14 @@ function overviewTableHtml(rows){
 }
 
 function statusStatsHtml(rows){
-  const biz = rows.filter(r => !r.privat);
+  const biz = rows.filter(r => !r.privat && !r.umbuchung);
   const sumBelegt = biz.filter(r => r.beleg_gefunden).reduce((s,r) => s + r.betrag, 0);
   const sumFehlt = biz.filter(r => !r.beleg_gefunden && !r.nicht_auffindbar).reduce((s,r) => s - Math.abs(r.betrag), 0);
   const sumSkip = biz.filter(r => r.nicht_auffindbar).reduce((s,r) => s - Math.abs(r.betrag), 0);
   const sumPrivat = rows.filter(r => r.privat).reduce((s,r) => s + r.betrag, 0);
+  const sumUmbuchung = rows.filter(r => r.umbuchung).reduce((s,r) => s + r.betrag, 0);
+  const barVerbraucht = rows.filter(r => r.typ === 'Bar' && r.betrag < 0).reduce((s,r) => s + r.betrag, 0);
+  const bargeldOffen = Math.abs(sumUmbuchung) - Math.abs(barVerbraucht);
 
   return `
     <div class="status-summary">
@@ -511,6 +519,16 @@ function statusStatsHtml(rows){
       <div class="stat-box privat">
         <div class="stat-label">Privat</div>
         <div class="stat-value">${formatEUR(sumPrivat)}</div>
+      </div>
+    </div>
+    <div class="status-summary">
+      <div class="stat-box umbuchung">
+        <div class="stat-label">Umbuchungen (Bar/Aircash)</div>
+        <div class="stat-value">${formatEUR(sumUmbuchung)}</div>
+      </div>
+      <div class="stat-box umbuchung">
+        <div class="stat-label">Davon noch nicht als Bar-Beleg erklärt</div>
+        <div class="stat-value">${formatEUR(bargeldOffen)}</div>
       </div>
     </div>
   `;
@@ -840,7 +858,7 @@ function renderMonatContent(){
   const data = currentMonatData;
   const content = document.getElementById('monat-content');
 
-  const offenBiz = data.filter(r => !r.privat && !r.beleg_gefunden && !r.nicht_auffindbar).length;
+  const offenBiz = data.filter(r => !r.privat && !r.umbuchung && !r.beleg_gefunden && !r.nicht_auffindbar).length;
   const badge = document.getElementById('monat-badge');
   if(data.length === 0){
     badge.textContent = "keine Buchungen";
@@ -876,6 +894,7 @@ function searchAndFilterBarHtml(){
       <button class="filter-btn ${statusFilter==='gefunden'?'active':''}" data-filter="gefunden" onclick="setStatusFilter('gefunden')">Gefunden</button>
       <button class="filter-btn ${statusFilter==='skip'?'active':''}" data-filter="skip" onclick="setStatusFilter('skip')">Nicht auffindbar</button>
       <button class="filter-btn ${statusFilter==='privat'?'active':''}" data-filter="privat" onclick="setStatusFilter('privat')">Privat</button>
+      <button class="filter-btn ${statusFilter==='umbuchung'?'active':''}" data-filter="umbuchung" onclick="setStatusFilter('umbuchung')">Umbuchung</button>
     </div>
   `;
 }
@@ -883,13 +902,15 @@ function searchAndFilterBarHtml(){
 function renderFilteredTables(data){
   let filtered = data;
   if(statusFilter === 'offen'){
-    filtered = data.filter(r => !r.privat && !r.beleg_gefunden && !r.nicht_auffindbar);
+    filtered = data.filter(r => !r.privat && !r.umbuchung && !r.beleg_gefunden && !r.nicht_auffindbar);
   } else if(statusFilter === 'gefunden'){
-    filtered = data.filter(r => !r.privat && r.beleg_gefunden);
+    filtered = data.filter(r => !r.privat && !r.umbuchung && r.beleg_gefunden);
   } else if(statusFilter === 'skip'){
-    filtered = data.filter(r => !r.privat && r.nicht_auffindbar);
+    filtered = data.filter(r => !r.privat && !r.umbuchung && r.nicht_auffindbar);
   } else if(statusFilter === 'privat'){
     filtered = data.filter(r => r.privat);
+  } else if(statusFilter === 'umbuchung'){
+    filtered = data.filter(r => r.umbuchung);
   }
 
   filtered = filtered.filter(r => matchesSearch(r, searchTerm));
@@ -910,6 +931,7 @@ function bulkToolbarHtml(){
       <button onclick="bulkUpdateStatus('gefunden')">Als gefunden markieren</button>
       <button class="secondary" onclick="bulkUpdateStatus('skip')">Als nicht auffindbar</button>
       <button class="secondary" onclick="bulkUpdateStatus('privat')">Als privat markieren</button>
+      <button class="secondary" onclick="bulkUpdateStatus('umbuchung')">Als Umbuchung markieren</button>
       <button class="secondary" onclick="clearSelection()">Auswahl aufheben</button>
     </div>
   `;
@@ -933,10 +955,11 @@ function clearSelection(){
 }
 
 async function bulkUpdateStatus(value){
-  let update = { beleg_gefunden: false, nicht_auffindbar: false, privat: false };
+  let update = { beleg_gefunden: false, nicht_auffindbar: false, privat: false, umbuchung: false };
   if(value === 'gefunden') update.beleg_gefunden = true;
   else if(value === 'skip') update.nicht_auffindbar = true;
   else if(value === 'privat') update.privat = true;
+  else if(value === 'umbuchung') update.umbuchung = true;
   const ids = Array.from(selectedIds);
   if(ids.length === 0) return;
   await sb.from('transactions').update(update).in('id', ids);
@@ -946,10 +969,11 @@ async function bulkUpdateStatus(value){
 function statusSelectHtml(r){
   return `
     <select class="status-select" onchange="updateBelegStatus('${r.id}', this.value)">
-      <option value="offen" ${(!r.privat && !r.beleg_gefunden && !r.nicht_auffindbar) ? 'selected':''}>Fehlt noch</option>
-      <option value="gefunden" ${(!r.privat && r.beleg_gefunden) ? 'selected':''}>Gefunden</option>
-      <option value="skip" ${(!r.privat && r.nicht_auffindbar) ? 'selected':''}>Nicht auffindbar</option>
+      <option value="offen" ${(!r.privat && !r.umbuchung && !r.beleg_gefunden && !r.nicht_auffindbar) ? 'selected':''}>Fehlt noch</option>
+      <option value="gefunden" ${(!r.privat && !r.umbuchung && r.beleg_gefunden) ? 'selected':''}>Gefunden</option>
+      <option value="skip" ${(!r.privat && !r.umbuchung && r.nicht_auffindbar) ? 'selected':''}>Nicht auffindbar</option>
       <option value="privat" ${r.privat ? 'selected':''}>Privat</option>
+      <option value="umbuchung" ${r.umbuchung ? 'selected':''}>Umbuchung (Bar/Aircash)</option>
     </select>
     <input type="text" class="notiz-input" placeholder="Notiz ..." value="${(r.notiz||'').replace(/"/g,'&quot;')}" onchange="updateNotiz('${r.id}', this.value)">
   `;
@@ -964,7 +988,7 @@ async function updateNotiz(id, value){
 
 function renderTypeBlock(typ, rows){
   if(rows.length === 0) return '';
-  const bizRows = rows.filter(r => !r.privat);
+  const bizRows = rows.filter(r => !r.privat && !r.umbuchung);
   const einnahmen = bizRows.filter(r=>r.betrag>0).reduce((s,r)=>s+r.betrag,0);
   const ausgaben = bizRows.filter(r=>r.betrag<0).reduce((s,r)=>s+r.betrag,0);
 
@@ -990,7 +1014,7 @@ function renderTypeBlock(typ, rows){
         </tr>
       `;
     }
-    const rowClass = r.privat ? 'row-privat' : (r.beleg_gefunden ? '' : (r.nicht_auffindbar ? 'row-skip' : 'row-missing'));
+    const rowClass = r.privat ? 'row-privat' : (r.umbuchung ? 'row-umbuchung' : (r.beleg_gefunden ? '' : (r.nicht_auffindbar ? 'row-skip' : 'row-missing')));
     return `
     <tr class="${rowClass}">
       <td><input type="checkbox" class="row-check" ${selectedIds.has(r.id)?'checked':''} onchange="toggleSelect('${r.id}')"></td>
@@ -1026,10 +1050,11 @@ function renderTypeBlock(typ, rows){
 }
 
 async function updateBelegStatus(id, value){
-  let update = { beleg_gefunden: false, nicht_auffindbar: false, privat: false };
+  let update = { beleg_gefunden: false, nicht_auffindbar: false, privat: false, umbuchung: false };
   if(value === 'gefunden') update.beleg_gefunden = true;
   else if(value === 'skip') update.nicht_auffindbar = true;
   else if(value === 'privat') update.privat = true;
+  else if(value === 'umbuchung') update.umbuchung = true;
   await sb.from('transactions').update(update).eq('id', id);
   loadMonat();
 }
@@ -1091,13 +1116,17 @@ async function loadJahr(){
   }
 
   const perMonth = {};
-  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0, belegt:0, fehlt:0, skip:0, privat:0, geprueft:0 };
+  for(let m=1;m<=12;m++) perMonth[m] = { einnahmen:0, ausgaben:0, offen:0, gesamt:0, belegt:0, fehlt:0, skip:0, privat:0, umbuchung:0, geprueft:0 };
 
   data.forEach(r => {
     const m = perMonth[r.monat];
     m.gesamt++;
     if(r.privat){
       m.privat += r.betrag;
+      return;
+    }
+    if(r.umbuchung){
+      m.umbuchung += r.betrag;
       return;
     }
     if(r.betrag > 0) m.einnahmen += r.betrag; else m.ausgaben += r.betrag;
@@ -1114,13 +1143,13 @@ async function loadJahr(){
     }
   });
 
-  let totalEin=0, totalAus=0, totalOffen=0, totalBelegt=0, totalFehlt=0, totalSkip=0, totalPrivat=0, totalGeprueft=0;
+  let totalEin=0, totalAus=0, totalOffen=0, totalBelegt=0, totalFehlt=0, totalSkip=0, totalPrivat=0, totalUmbuchung=0, totalGeprueft=0;
   const rows = MONTH_NAMES.map((name, i) => {
     const m = perMonth[i+1];
     if(m.gesamt === 0) return '';
     totalEin += m.einnahmen; totalAus += m.ausgaben; totalOffen += m.offen;
     totalBelegt += m.belegt; totalFehlt += m.fehlt; totalSkip += m.skip;
-    totalPrivat += m.privat; totalGeprueft += m.geprueft;
+    totalPrivat += m.privat; totalUmbuchung += m.umbuchung; totalGeprueft += m.geprueft;
     return `
       <tr>
         <td>${name}</td>
@@ -1131,6 +1160,7 @@ async function loadJahr(){
         <td class="amount" style="color:var(--green);">${formatEUR(m.belegt)}</td>
         <td class="amount" style="color:var(--amber);">${formatEUR(m.fehlt)}</td>
         <td class="amount" style="color:var(--privat);">${formatEUR(m.privat)}</td>
+        <td class="amount" style="color:var(--umbuchung);">${formatEUR(m.umbuchung)}</td>
         <td>${m.offen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+m.offen+' offen</span>'}</td>
       </tr>
     `;
@@ -1141,7 +1171,7 @@ async function loadJahr(){
     ${statusStatsHtml(data)}
     <div class="table-wrap">
     <table>
-      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Geprüft</th><th>Belegt</th><th>Fehlt</th><th>Privat</th><th>Status</th></tr></thead>
+      <thead><tr><th>Monat</th><th>Einnahmen</th><th>Ausgaben</th><th>Saldo</th><th>Geprüft</th><th>Belegt</th><th>Fehlt</th><th>Privat</th><th>Umbuchung</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot>
         <tr class="subtotal-row">
@@ -1153,6 +1183,7 @@ async function loadJahr(){
           <td class="amount" style="color:var(--green);">${formatEUR(totalBelegt)}</td>
           <td class="amount" style="color:var(--amber);">${formatEUR(totalFehlt)}</td>
           <td class="amount" style="color:var(--privat);">${formatEUR(totalPrivat)}</td>
+          <td class="amount" style="color:var(--umbuchung);">${formatEUR(totalUmbuchung)}</td>
           <td>${totalOffen === 0 ? '<span class="badge ok">vollständig</span>' : '<span class="badge">'+totalOffen+' offen</span>'}</td>
         </tr>
       </tfoot>
