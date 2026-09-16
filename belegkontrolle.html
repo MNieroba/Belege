@@ -289,7 +289,19 @@
         <select id="monat-jahr"></select>
         <button class="secondary" onclick="loadMonat()">Anzeigen</button>
       </div>
-      <div id="monat-content"></div>
+      <div id="monat-overview"></div>
+      <div class="search-bar">
+        <input type="text" id="monat-search" placeholder="Suche nach Betrag, Datum, Name oder Notiz ..." oninput="setSearchTerm(this.value)">
+      </div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="alle" onclick="setStatusFilter('alle')">Alle</button>
+        <button class="filter-btn" data-filter="offen" onclick="setStatusFilter('offen')">Fehlt noch</button>
+        <button class="filter-btn" data-filter="gefunden" onclick="setStatusFilter('gefunden')">Gefunden</button>
+        <button class="filter-btn" data-filter="skip" onclick="setStatusFilter('skip')">Nicht auffindbar</button>
+        <button class="filter-btn" data-filter="privat" onclick="setStatusFilter('privat')">Privat</button>
+        <button class="filter-btn" data-filter="umbuchung" onclick="setStatusFilter('umbuchung')">Umbuchung</button>
+      </div>
+      <div id="monat-results"></div>
     </section>
 
     <!-- JAHRESÜBERSICHT -->
@@ -810,12 +822,12 @@ let searchTerm = '';
 function setStatusFilter(filter){
   statusFilter = filter;
   document.querySelectorAll('#view-monat .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === filter));
-  renderMonatContent();
+  renderResults();
 }
 
 function setSearchTerm(value){
   searchTerm = value;
-  renderMonatContent();
+  renderResults();
 }
 
 function matchesSearch(r, term){
@@ -841,8 +853,11 @@ async function loadMonat(){
     .eq('jahr', jahr).eq('monat', monat)
     .order('datum', { ascending: true });
 
-  const content = document.getElementById('monat-content');
-  if(error){ content.innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>'; return; }
+  if(error){
+    document.getElementById('monat-overview').innerHTML = '';
+    document.getElementById('monat-results').innerHTML = '<p class="empty-note">Fehler beim Laden: '+error.message+'</p>';
+    return;
+  }
 
   currentMonatData = data || [];
   selectedIds = new Set();
@@ -851,12 +866,14 @@ async function loadMonat(){
   searchTerm = '';
   const searchInput = document.getElementById('monat-search');
   if(searchInput) searchInput.value = '';
+  document.querySelectorAll('#view-monat .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'alle'));
   renderMonatContent();
 }
 
 function renderMonatContent(){
   const data = currentMonatData;
-  const content = document.getElementById('monat-content');
+  const overviewEl = document.getElementById('monat-overview');
+  const resultsEl = document.getElementById('monat-results');
 
   const offenBiz = data.filter(r => !r.privat && !r.umbuchung && !r.beleg_gefunden && !r.nicht_auffindbar).length;
   const badge = document.getElementById('monat-badge');
@@ -872,31 +889,18 @@ function renderMonatContent(){
   }
 
   if(data.length === 0){
-    content.innerHTML = '<p class="empty-note">Keine Buchungen für diesen Monat.</p>';
+    overviewEl.innerHTML = '';
+    resultsEl.innerHTML = '<p class="empty-note">Keine Buchungen für diesen Monat.</p>';
     return;
   }
 
-  content.innerHTML = overviewTableHtml(data) +
-                       statusStatsHtml(data) +
-                       searchAndFilterBarHtml() +
-                       bulkToolbarHtml() +
-                       renderFilteredTables(data);
+  overviewEl.innerHTML = overviewTableHtml(data) + statusStatsHtml(data);
+  renderResults();
 }
 
-function searchAndFilterBarHtml(){
-  return `
-    <div class="search-bar">
-      <input type="text" id="monat-search" placeholder="Suche nach Betrag, Datum, Name oder Notiz ..." value="${searchTerm.replace(/"/g,'&quot;')}" oninput="setSearchTerm(this.value)">
-    </div>
-    <div class="filter-bar">
-      <button class="filter-btn ${statusFilter==='alle'?'active':''}" data-filter="alle" onclick="setStatusFilter('alle')">Alle</button>
-      <button class="filter-btn ${statusFilter==='offen'?'active':''}" data-filter="offen" onclick="setStatusFilter('offen')">Fehlt noch</button>
-      <button class="filter-btn ${statusFilter==='gefunden'?'active':''}" data-filter="gefunden" onclick="setStatusFilter('gefunden')">Gefunden</button>
-      <button class="filter-btn ${statusFilter==='skip'?'active':''}" data-filter="skip" onclick="setStatusFilter('skip')">Nicht auffindbar</button>
-      <button class="filter-btn ${statusFilter==='privat'?'active':''}" data-filter="privat" onclick="setStatusFilter('privat')">Privat</button>
-      <button class="filter-btn ${statusFilter==='umbuchung'?'active':''}" data-filter="umbuchung" onclick="setStatusFilter('umbuchung')">Umbuchung</button>
-    </div>
-  `;
+function renderResults(){
+  const resultsEl = document.getElementById('monat-results');
+  resultsEl.innerHTML = bulkToolbarHtml() + renderFilteredTables(currentMonatData);
 }
 
 function renderFilteredTables(data){
@@ -939,19 +943,19 @@ function bulkToolbarHtml(){
 
 function toggleSelect(id){
   if(selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
-  renderMonatContent();
+  renderResults();
 }
 
 function toggleSelectAllBlock(checkbox){
   const ids = checkbox.dataset.ids.split(',').filter(Boolean);
   if(checkbox.checked){ ids.forEach(id => selectedIds.add(id)); }
   else { ids.forEach(id => selectedIds.delete(id)); }
-  renderMonatContent();
+  renderResults();
 }
 
 function clearSelection(){
   selectedIds.clear();
-  renderMonatContent();
+  renderResults();
 }
 
 async function bulkUpdateStatus(value){
@@ -1061,12 +1065,12 @@ async function updateBelegStatus(id, value){
 
 function startEdit(id){
   editingRowId = id;
-  renderMonatContent();
+  renderResults();
 }
 
 function cancelEdit(){
   editingRowId = null;
-  renderMonatContent();
+  renderResults();
 }
 
 async function saveEdit(id){
