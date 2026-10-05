@@ -132,6 +132,12 @@
   .status-cell{min-width:200px;}
   .status-cell select{padding:6px 8px;font-size:14px;margin-bottom:5px;}
   .status-cell input{padding:6px 8px;font-size:14px;}
+  .cell-row{display:flex;gap:6px;}
+  .cell-row .mwst-sel{width:auto;min-width:78px;flex-shrink:0;margin-bottom:0;}
+  .stat-box.tax{border-top-color:var(--muted);}
+  .stats-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+  .stat-box.zahllast{border-top-color:var(--red);}
+  .bulk-sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px;}
   .row-actions{white-space:nowrap;}
   .row-actions button{margin-right:4px;}
   .section-label{display:flex;align-items:center;gap:10px;margin:22px 0 10px 0;}
@@ -184,6 +190,7 @@
     thead th,tbody td,tfoot td{border-color:#bbb !important;padding:4px 6px;}
     .stat-box{background:#fff;border:1px solid #999;border-top-width:3px;}
     .stats{grid-template-columns:repeat(4,1fr);}
+    .stats-3{grid-template-columns:repeat(3,1fr);}
     .status-cell select,.status-cell input{display:none !important;}
     .print-only{display:inline;}
     tr{page-break-inside:avoid;}
@@ -322,6 +329,19 @@
             <option value="offen">Fehlt noch</option>
           </select>
         </div>
+        <div class="field">
+          <label>MwSt</label>
+          <select id="in-mwst" onchange="toggleMwstBetrag()">
+            <option value="19" selected>19 %</option>
+            <option value="7">7 %</option>
+            <option value="0">0 % (ohne MwSt)</option>
+            <option value="manuell">Gemischt: Betrag eingeben</option>
+          </select>
+        </div>
+        <div class="field hidden" id="in-mwst-betrag-wrap">
+          <label>MwSt-Betrag (€)</label>
+          <input type="text" inputmode="decimal" id="in-mwst-betrag" placeholder="4,25">
+        </div>
         <div class="field" style="display:flex;align-items:flex-end;">
           <label class="check-label" style="margin-bottom:10px;"><input type="checkbox" id="in-privat"> Privat</label>
         </div>
@@ -452,6 +472,30 @@ const STATUS_LABELS = { offen:'Fehlt noch', gefunden:'Gefunden', skip:'Nicht auf
 function statusLabel(r){ return STATUS_LABELS[statusOf(r)]; }
 const ROW_CLASS = { offen:'row-missing', gefunden:'row-ok', skip:'row-skip', privat:'row-privat', umbuchung:'row-umbuchung', aircash:'row-aircash' };
 function sum(rows, fn){ return rows.reduce((s,r) => s + fn(r), 0); }
+// ---- MwSt ----
+function hasMwstBetrag(r){ return r.mwst_betrag !== null && r.mwst_betrag !== undefined && r.mwst_betrag !== '' && !isNaN(Number(r.mwst_betrag)); }
+function mwstSatz(r){ const s = Number(r.mwst_satz); return (r.mwst_satz === null || r.mwst_satz === undefined || isNaN(s)) ? 19 : s; }
+function steuerAnteil(r){
+  const b = Number(r.betrag) || 0;
+  if(hasMwstBetrag(r)) return Math.sign(b) * Math.abs(Number(r.mwst_betrag));
+  const s = mwstSatz(r);
+  return b * s / (100 + s);
+}
+function mwstLabel(r){ return hasMwstBetrag(r) ? 'MwSt ' + formatEUR(Math.abs(Number(r.mwst_betrag))) : mwstSatz(r) + ' %'; }
+const MWST_FREI_RE = /(versicherung|allianz|\baxa\b|\bhuk\b|finanzamt|bundeskasse|krankenkasse|\baok\b|barmer|\bdak\b|\bikk\b|knappschaft|minijob|gehalt|\blohn|sozialversicherung|berufsgenossenschaft|soka|rundfunk|zinsen)/i;
+function guessMwst(beschreibung){ return MWST_FREI_RE.test(beschreibung || '') ? 0 : 19; }
+function taxStats(rows){
+  let nettoEin = 0, ust = 0, nettoAus = 0, vst = 0, vstGefahr = 0;
+  rows.filter(r => !isNeutral(r)).forEach(r => {
+    const b = Number(r.betrag) || 0, s = steuerAnteil(r);
+    if(b > 0){ nettoEin += b - s; ust += s; }
+    else if(b < 0){
+      nettoAus += b - s;
+      if(statusOf(r) === 'gefunden') vst += -s; else vstGefahr += -s;
+    }
+  });
+  return { nettoEin, ust, nettoAus, vst, vstGefahr, zahllast: ust - vst };
+}
 function num(r){ return Number(r.betrag) || 0; }
 
 // Alle Zeilen holen (Supabase liefert max. 1000 pro Abfrage)
@@ -525,6 +569,20 @@ function statusStatsHtml(rows){
       ${statBox('aircash', 'Aircash', sumAir, countTxt(air.length))}
       ${statBox(offenBar > 0.005 ? 'warn' : 'ok', 'Noch nicht durch Bar-Belege erklärt', offenBar > 0.005 ? offenBar : 0,
         offenBar > 0.005 ? 'Abhebungen + Aircash minus Bar-Ausgaben' : 'vollständig erklärt', '')}
+    </div>` + taxStatsHtml(rows);
+}
+
+function taxStatsHtml(rows){
+  const t = taxStats(rows);
+  const zl = t.zahllast;
+  return `<div class="section-label"><h3>Umsatzsteuer</h3><span class="muted">Schätzung, ohne Privat, Bargeld und Aircash</span></div>
+    <div class="stats stats-3">
+      ${statBox('ok', 'Netto-Einnahmen', t.nettoEin, 'ohne Umsatzsteuer')}
+      ${statBox('tax', 'Umsatzsteuer', t.ust, 'aus den Einnahmen', '')}
+      ${statBox('skip', 'Netto-Ausgaben', t.nettoAus, 'ohne Vorsteuer')}
+      ${statBox('tax', 'Vorsteuer mit Beleg', t.vst, 'darf abgezogen werden', '')}
+      ${statBox('warn', 'Vorsteuer in Gefahr', t.vstGefahr, 'Beleg fehlt oder nicht auffindbar', '')}
+      ${statBox('zahllast', 'Voraussichtliche Zahllast', Math.abs(zl), zl >= 0 ? 'an das Finanzamt' : 'Erstattung vom Finanzamt', zl >= 0 ? 'neg' : 'pos')}
     </div>`;
 }
 
@@ -624,6 +682,11 @@ function bulkToolbarHtml(){
     <button class="small secondary" onclick="bulkUpdateStatus('umbuchung')">Als Bargeldabhebung</button>
     <button class="small secondary" onclick="bulkUpdateStatus('aircash')">Als Aircash</button>
     <button class="small secondary" onclick="bulkUpdateStatus('offen')">Fehlt noch</button>
+    <span class="bulk-sep"></span>
+    <button class="small secondary" onclick="bulkUpdateMwst(19)">MwSt 19 %</button>
+    <button class="small secondary" onclick="bulkUpdateMwst(7)">MwSt 7 %</button>
+    <button class="small secondary" onclick="bulkUpdateMwst(0)">MwSt 0 %</button>
+    <span class="bulk-sep"></span>
     <button class="small secondary" onclick="clearSelection()">Auswahl aufheben</button>
   </div>`;
 }
@@ -655,6 +718,30 @@ async function bulkUpdateStatus(value){
   selectedIds = new Set();
   await refreshMonat();
 }
+async function bulkUpdateMwst(satz){
+  const ids = [...selectedIds];
+  if(ids.length === 0) return;
+  const { error } = await sb.from('transactions').update({ mwst_satz: satz, mwst_betrag: null }).in('id', ids);
+  if(error){ alert('Fehler: ' + error.message); return; }
+  selectedIds = new Set();
+  await refreshMonat();
+}
+async function updateMwst(id, value, sel){
+  const r = currentMonatData.find(x => x.id === id);
+  let upd;
+  if(value === 'manuell'){
+    const vorschlag = r && hasMwstBetrag(r) ? Math.abs(Number(r.mwst_betrag)).toFixed(2).replace('.', ',') : '';
+    const eingabe = prompt('MwSt-Betrag in € (steht auf dem Beleg):', vorschlag);
+    const v = Math.abs(parseAmount(eingabe));
+    if(eingabe === null || isNaN(v)){ if(r) sel.value = hasMwstBetrag(r) ? 'manuell' : String(mwstSatz(r)); return; }
+    upd = { mwst_betrag: v };
+  } else {
+    upd = { mwst_satz: Number(value), mwst_betrag: null };
+  }
+  const { error } = await sb.from('transactions').update(upd).eq('id', id);
+  if(error){ alert('Fehler: ' + error.message); return; }
+  await refreshMonat();
+}
 async function updateBelegStatus(id, value){
   const { error } = await sb.from('transactions').update(flagsFor(value)).eq('id', id);
   if(error){ alert('Fehler: ' + error.message); return; }
@@ -674,8 +761,18 @@ function statusSelectHtml(r){
   return `<select onchange="updateBelegStatus('${r.id}', this.value)">
       ${opt('offen')}${opt('gefunden')}${opt('skip')}${opt('privat')}${opt('umbuchung')}${opt('aircash')}
     </select>
-    <input type="text" placeholder="Notiz" value="${esc(r.notiz)}" onchange="updateNotiz('${r.id}', this.value)">
-    <span class="print-only"><b>${STATUS_LABELS[st]}</b>${r.notiz ? ' – ' + esc(r.notiz) : ''}</span>`;
+    <div class="cell-row">${isNeutral(r) ? '' : mwstSelectHtml(r)}
+      <input type="text" placeholder="Notiz" value="${esc(r.notiz)}" onchange="updateNotiz('${r.id}', this.value)"></div>
+    <span class="print-only"><b>${STATUS_LABELS[st]}</b>${isNeutral(r) ? '' : ', ' + mwstLabel(r)}${r.notiz ? ' – ' + esc(r.notiz) : ''}</span>`;
+}
+function mwstSelectHtml(r){
+  const manuell = hasMwstBetrag(r);
+  const s = mwstSatz(r);
+  const o = (v, label) => `<option value="${v}" ${!manuell && s === v ? 'selected' : ''}>${label}</option>`;
+  return `<select class="mwst-sel" title="MwSt" onchange="updateMwst('${r.id}', this.value, this)">
+      ${o(19, '19 %')}${o(7, '7 %')}${o(0, '0 %')}
+      <option value="manuell" ${manuell ? 'selected' : ''}>${manuell ? formatEUR(Math.abs(Number(r.mwst_betrag))) : 'Betrag …'}</option>
+    </select>`;
 }
 
 function renderTypeBlock(typ, rows){
@@ -748,12 +845,14 @@ let lastJahrNr = null;
 let lastJahrPerMonth = null;
 
 function emptyMonth(){
-  return { einnahmen:0, ausgaben:0, geprueft:0, belegt:0, fehlt:0, skip:0, privat:0, umbuchung:0, aircash:0, offen:0, gesamt:0 };
+  return { einnahmen:0, ausgaben:0, geprueft:0, belegt:0, fehlt:0, skip:0, privat:0, umbuchung:0, aircash:0, offen:0, gesamt:0,
+    nettoEin:0, ust:0, nettoAus:0, vst:0, vstGefahr:0, zahllast:0 };
 }
 function aggregateMonth(rows){
   const m = emptyMonth();
   const s = computeStats(rows);
   m.einnahmen = s.einnahmen; m.ausgaben = s.ausgaben; m.geprueft = s.geprueft;
+  Object.assign(m, taxStats(rows));
   rows.forEach(r => {
     const st = statusOf(r), b = num(r);
     m.gesamt++;
@@ -809,6 +908,27 @@ async function loadJahr(){
         <th class="amount">Privat</th><th class="amount">Bargeld</th><th class="amount">Aircash</th><th>Status</th></tr></thead>
       <tbody>${rows}</tbody>
       <tfoot><tr><td>Jahr gesamt</td>${cells(total)}</tr></tfoot>
+    </table></div>` + jahrSteuerTableHtml(perMonth, total);
+}
+
+function jahrSteuerTableHtml(perMonth, total){
+  const cells = (m) => `
+    <td class="amount">${formatEUR(m.nettoEin)}</td>
+    <td class="amount">${formatEUR(m.ust)}</td>
+    <td class="amount">${formatEUR(m.nettoAus)}</td>
+    <td class="amount">${formatEUR(m.vst)}</td>
+    <td class="amount">${formatEUR(m.vstGefahr)}</td>
+    <td class="amount ${m.zahllast > 0 ? 'neg' : 'pos'}">${formatEUR(m.zahllast)}</td>`;
+  const rows = MONTH_NAMES.map((name, i) => {
+    const m = perMonth[i+1];
+    return m.gesamt ? `<tr><td>${name}</td>${cells(m)}</tr>` : '';
+  }).join('');
+  return `<div class="section-label"><h3>Umsatzsteuer je Monat</h3><span class="muted">Zahllast positiv = an das Finanzamt</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Monat</th><th class="amount">Netto-Einnahmen</th><th class="amount">Umsatzsteuer</th><th class="amount">Netto-Ausgaben</th>
+        <th class="amount">Vorsteuer mit Beleg</th><th class="amount">Vorsteuer in Gefahr</th><th class="amount">Zahllast</th></tr></thead>
+      <tbody>${rows}</tbody>
+      <tfoot><tr><td>Jahr gesamt</td>${cells(total)}</tr></tfoot>
     </table></div>`;
 }
 
@@ -835,17 +955,25 @@ function exportMonatCSV(){
   const rows = getFilteredData(currentMonatData);
   if(rows.length === 0){ alert('Keine Buchungen zum Exportieren.'); return; }
   const sorted = [...rows.filter(r => r.typ === 'Bank'), ...rows.filter(r => r.typ === 'Bar')];
-  const out = [['Datum','Typ','Beschreibung','Betrag','Status','Notiz']];
-  sorted.forEach(r => out.push([fmtDate(r.datum), r.typ, r.beschreibung, csvNum(num(r)), statusLabel(r), r.notiz || '']));
+  const out = [['Datum','Typ','Beschreibung','Betrag','MwSt-Satz','MwSt','Netto','Status','Notiz']];
+  sorted.forEach(r => {
+    const neutral = isNeutral(r), s = steuerAnteil(r);
+    out.push([fmtDate(r.datum), r.typ, r.beschreibung, csvNum(num(r)),
+      neutral ? '' : (hasMwstBetrag(r) ? 'gemischt' : mwstSatz(r) + ' %'),
+      neutral ? '' : csvNum(s), neutral ? '' : csvNum(num(r) - s),
+      statusLabel(r), r.notiz || '']);
+  });
   const suffix = statusFilter === 'alle' ? '' : '_' + FILTER_LABELS[statusFilter].replace(/\s+/g, '-');
   downloadCSV(`Belegkontrolle_${jahr}-${String(monat).padStart(2,'0')}${suffix}.csv`, out);
 }
 
 function exportJahrCSV(){
   if(!lastJahrPerMonth){ alert('Keine Buchungen zum Exportieren.'); return; }
-  const out = [['Monat','Einnahmen','Ausgaben','Saldo','Geprüfter Saldo','Belegt','Fehlt noch','Nicht auffindbar','Privat','Bargeldabhebung','Aircash','Offene Belege']];
+  const out = [['Monat','Einnahmen','Ausgaben','Saldo','Geprüfter Saldo','Belegt','Fehlt noch','Nicht auffindbar','Privat','Bargeldabhebung','Aircash','Offene Belege',
+    'Netto-Einnahmen','Umsatzsteuer','Netto-Ausgaben','Vorsteuer mit Beleg','Vorsteuer in Gefahr','Zahllast']];
   const line = (name, m) => [name, csvNum(m.einnahmen), csvNum(m.ausgaben), csvNum(m.einnahmen + m.ausgaben), csvNum(m.geprueft),
-    csvNum(m.belegt), csvNum(m.fehlt), csvNum(m.skip), csvNum(m.privat), csvNum(m.umbuchung), csvNum(m.aircash), m.offen];
+    csvNum(m.belegt), csvNum(m.fehlt), csvNum(m.skip), csvNum(m.privat), csvNum(m.umbuchung), csvNum(m.aircash), m.offen,
+    csvNum(m.nettoEin), csvNum(m.ust), csvNum(m.nettoAus), csvNum(m.vst), csvNum(m.vstGefahr), csvNum(m.zahllast)];
   MONTH_NAMES.forEach((name, i) => { const m = lastJahrPerMonth[i+1]; if(m.gesamt) out.push(line(name, m)); });
   out.push(line('Jahr gesamt', aggregateMonth(lastJahrRows)));
   downloadCSV(`Belegkontrolle_${lastJahrNr}_Jahresuebersicht.csv`, out);
@@ -878,7 +1006,19 @@ async function submitManuell(){
   const gefunden = document.getElementById('in-status').value === 'gefunden';
   const privat = document.getElementById('in-privat').checked;
   const notiz = document.getElementById('in-notiz').value.trim() || null;
+  const mwstWahl = document.getElementById('in-mwst').value;
   const statusEl = document.getElementById('eingabe-status');
+  let mwst_satz = 19, mwst_betrag = null;
+  if(mwstWahl === 'manuell'){
+    mwst_betrag = Math.abs(parseAmount(document.getElementById('in-mwst-betrag').value));
+    if(isNaN(mwst_betrag)){
+      statusEl.textContent = 'Bitte den MwSt-Betrag eintragen oder einen Satz wählen.';
+      statusEl.style.color = 'var(--red)';
+      return;
+    }
+  } else {
+    mwst_satz = Number(mwstWahl);
+  }
 
   if(!datum || !beschreibung || isNaN(roh)){
     statusEl.textContent = 'Bitte Datum, Beschreibung und Betrag ausfüllen.';
@@ -891,7 +1031,7 @@ async function submitManuell(){
   const { error } = await sb.from('transactions').insert({
     jahr: y, monat: m, datum, typ, beschreibung, betrag,
     beleg_gefunden: !privat && gefunden, nicht_auffindbar: false, privat, umbuchung: false, aircash: false,
-    notiz, erstellt_von: session.user.email
+    mwst_satz, mwst_betrag, notiz, erstellt_von: session.user.email
   });
   if(error){
     statusEl.textContent = 'Fehler beim Speichern: ' + error.message;
@@ -900,7 +1040,9 @@ async function submitManuell(){
   }
   statusEl.textContent = `Gespeichert: ${beschreibung}, ${formatEUR(betrag)}`;
   statusEl.style.color = 'var(--green)';
-  ['in-beschreibung','in-betrag','in-notiz','in-foto'].forEach(id => document.getElementById(id).value = '');
+  ['in-beschreibung','in-betrag','in-notiz','in-foto','in-mwst-betrag'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('in-mwst').value = '19';
+  toggleMwstBetrag();
   document.getElementById('in-privat').checked = false;
   document.getElementById('foto-status').textContent = '';
 }
@@ -963,6 +1105,21 @@ function parseReceiptText(text){
     const first = lines.find(l => /[A-Za-zÄÖÜäöü]{4,}/.test(l) && !/^(es|bitte|danke|willkommen)\b/i.test(l));
     if(first) out.name = first.replace(/[^A-Za-zÄÖÜäöüß0-9 &.\-]/g, '').trim().slice(0, 50);
   }
+  // MwSt: Zeilen mit "19 %" oder "7 %" und passendem Steuerbetrag
+  const taxByRate = {};
+  lines.forEach(l => {
+    const rm = l.match(/(?:^|[^\d,.])(19|7)(?:[.,]0{1,2})?\s?%/);
+    if(!rm) return;
+    const rate = Number(rm[1]);
+    if(!(rate in taxByRate)) taxByRate[rate] = null;
+    const am = receiptAmounts(l);
+    am.forEach(tx => am.forEach(x => {
+      if(x > tx && Math.abs(x * rate / (100 + rate) - tx) < 0.03) taxByRate[rate] = Math.max(taxByRate[rate] || 0, tx);
+    }));
+  });
+  if(taxByRate[19] && taxByRate[7]) out.mwst = { betrag: Math.round((taxByRate[19] + taxByRate[7]) * 100) / 100 };
+  else if(7 in taxByRate && !(19 in taxByRate)) out.mwst = { satz: 7 };
+  else if(19 in taxByRate) out.mwst = { satz: 19 };
   return out;
 }
 
@@ -1001,6 +1158,10 @@ function prepareReceiptImage(file){
   });
 }
 
+function toggleMwstBetrag(){
+  document.getElementById('in-mwst-betrag-wrap').classList.toggle('hidden', document.getElementById('in-mwst').value !== 'manuell');
+}
+
 async function handleReceiptPhoto(event){
   const file = event.target.files && event.target.files[0];
   const st = document.getElementById('foto-status');
@@ -1026,6 +1187,17 @@ async function handleReceiptPhoto(event){
     if(r.name){
       document.getElementById('in-beschreibung').value = r.name;
       found.push(r.name);
+    }
+    if(r.mwst){
+      if(r.mwst.betrag){
+        document.getElementById('in-mwst').value = 'manuell';
+        document.getElementById('in-mwst-betrag').value = r.mwst.betrag.toFixed(2).replace('.', ',');
+        found.push('MwSt gemischt ' + formatEUR(r.mwst.betrag));
+      } else {
+        document.getElementById('in-mwst').value = String(r.mwst.satz);
+        found.push('MwSt ' + r.mwst.satz + ' %');
+      }
+      toggleMwstBetrag();
     }
     st.textContent = found.length ? 'Erkannt: ' + found.join(', ') + '. Bitte prüfen.' : 'Nichts erkannt. Bitte von Hand eintragen.';
   } catch(e){
@@ -1097,7 +1269,7 @@ async function parsePdf(){
     const n = Math.abs(parseAmount(raw));
     if(isNaN(n)) return;
     const betrag = sign === '-' ? -n : n;
-    results.push({ tag, monatNr: mon, beschreibung: desc, betrag, typ: 'Bank', kategorie: guessKategorie(desc, betrag), dup: false });
+    results.push({ tag, monatNr: mon, beschreibung: desc, betrag, typ: 'Bank', kategorie: guessKategorie(desc, betrag), mwst: guessMwst(desc), dup: false });
   };
   for(const line of lines){
     const sm = line.match(singleLineRe);
@@ -1147,6 +1319,9 @@ function renderPdfPreview(results){
       <td><input type="text" value="${esc(r.beschreibung)}" data-field="beschreibung" style="min-width:240px;"></td>
       <td><input type="text" inputmode="decimal" value="${r.betrag.toFixed(2).replace('.', ',')}" data-field="betrag" style="width:105px;"></td>
       <td><select data-field="typ" style="width:85px;"><option value="Bank" selected>Bank</option><option value="Bar">Bar</option></select></td>
+      <td><select data-field="mwst" style="width:80px;">
+        <option value="19" ${r.mwst === 19 ? 'selected' : ''}>19 %</option><option value="7">7 %</option><option value="0" ${r.mwst === 0 ? 'selected' : ''}>0 %</option>
+      </select></td>
       <td><select data-field="kategorie" style="width:165px;">
         ${katOpt(r, 'normal', 'Normal')}${katOpt(r, 'bargeld', 'Bargeldabhebung')}${katOpt(r, 'aircash', 'Aircash')}
       </select></td>
@@ -1155,7 +1330,7 @@ function renderPdfPreview(results){
   wrap.innerHTML = `
     <p style="margin:10px 0;">${results.length} Buchungen erkannt.${dupCount ? ` <span class="dup-tag">${dupCount} schon vorhanden</span> und deshalb abgewählt.` : ''} Bitte prüfen und dann übernehmen.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th class="amount">Betrag</th><th>Typ</th><th>Kategorie</th><th></th></tr></thead>
+      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th class="amount">Betrag</th><th>Typ</th><th>MwSt</th><th>Kategorie</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <button onclick="confirmPdfImport()">Ausgewählte übernehmen</button>
@@ -1175,6 +1350,7 @@ async function confirmPdfImport(){
     const betrag = parseAmount(row.querySelector('[data-field="betrag"]').value);
     const typ = row.querySelector('[data-field="typ"]').value;
     const kat = row.querySelector('[data-field="kategorie"]').value;
+    const mwst_satz = Number(row.querySelector('[data-field="mwst"]').value);
     const mon = parseInt(monatNr, 10);
     if(!tag || !mon || mon < 1 || mon > 12 || isNaN(betrag)) return;
     toInsert.push({
@@ -1182,7 +1358,7 @@ async function confirmPdfImport(){
       typ, beschreibung, betrag,
       beleg_gefunden: false, nicht_auffindbar: false, privat: false,
       umbuchung: kat === 'bargeld', aircash: kat === 'aircash',
-      notiz: null, erstellt_von: session.user.email
+      mwst_satz, mwst_betrag: null, notiz: null, erstellt_von: session.user.email
     });
   });
   if(toInsert.length === 0){ statusEl.textContent = 'Keine Zeile ausgewählt.'; statusEl.style.color = 'var(--red)'; return; }
