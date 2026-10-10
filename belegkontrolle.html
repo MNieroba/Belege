@@ -134,8 +134,15 @@
   .status-cell input{padding:6px 8px;font-size:14px;}
   .cell-row{display:flex;gap:6px;}
   .cell-row .mwst-sel{width:auto;min-width:78px;flex-shrink:0;margin-bottom:0;}
+  .status-cell{min-width:330px;}
+  .cell-row .kat-sel{min-width:150px;}
+  .kat-filter{width:auto;padding:6px 10px;font-size:13px;border-radius:999px;}
+  .bulk-toolbar select{width:auto;padding:5px 8px;font-size:12px;}
+  .sub-info{display:block;font-size:12px;color:var(--muted);}
+  .warn-row td{color:var(--amber);}
   .stat-box.tax{border-top-color:var(--muted);}
-  .stats-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+  .stats.stats-3{grid-template-columns:repeat(3,1fr);}
+  @media (max-width:640px){.stats.stats-3{grid-template-columns:repeat(2,1fr);}}
   .stat-box.zahllast{border-top-color:var(--red);}
   .bulk-sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px;}
   .row-actions{white-space:nowrap;}
@@ -190,7 +197,7 @@
     thead th,tbody td,tfoot td{border-color:#bbb !important;padding:4px 6px;}
     .stat-box{background:#fff;border:1px solid #999;border-top-width:3px;}
     .stats{grid-template-columns:repeat(4,1fr);}
-    .stats-3{grid-template-columns:repeat(3,1fr);}
+    .stats.stats-3{grid-template-columns:repeat(3,1fr);}
     .status-cell select,.status-cell input{display:none !important;}
     .print-only{display:inline;}
     tr{page-break-inside:avoid;}
@@ -227,6 +234,7 @@
     <nav class="nav">
       <button class="nav-item" data-view="monat" onclick="switchView('monat')">Monatsübersicht</button>
       <button class="nav-item" data-view="jahr" onclick="switchView('jahr')">Jahresübersicht</button>
+      <button class="nav-item" data-view="suche" onclick="switchView('suche')">Belegsuche</button>
       <button class="nav-item" data-view="eingabe" onclick="switchView('eingabe')">Bar Belege</button>
       <button class="nav-item" data-view="pdf" onclick="switchView('pdf')">Kontoauszüge</button>
     </nav>
@@ -265,6 +273,16 @@
         <button class="filter-btn" data-filter="privat" onclick="setStatusFilter('privat')">Privat</button>
         <button class="filter-btn" data-filter="umbuchung" onclick="setStatusFilter('umbuchung')">Bargeldabhebung</button>
         <button class="filter-btn" data-filter="aircash" onclick="setStatusFilter('aircash')">Aircash</button>
+        <select id="monat-kat-filter" class="kat-filter" onchange="setKatFilter(this.value)">
+            <option value="alle">Alle Kategorien</option>
+            <option value="ohne">Ohne Kategorie</option>
+            <option value="kunden">Kunden</option>
+            <option value="zuschuss">Zuschüsse &amp; Erstattungen</option>
+            <option value="betrieb">Betrieb &amp; Material</option>
+            <option value="personal">Personal</option>
+            <option value="ust">Umsatzsteuer</option>
+            <option value="steuern">Sonstige Steuern</option>
+        </select>
       </div>
       <div id="monat-results"></div>
     </section>
@@ -282,6 +300,19 @@
         <button class="secondary" onclick="printView('jahr')">Drucken / PDF</button>
       </div>
       <div id="jahr-content"></div>
+    </section>
+
+    <!-- BELEGSUCHE -->
+    <section id="view-suche" class="hidden">
+      <div class="view-header"><h2>Belegsuche</h2></div>
+      <p class="helptext">Was auf dem Beleg lesbar ist eingeben, auch kombiniert, z. B. „hornbach 26,59“. Gesucht wird in allen Monaten und Jahren.</p>
+      <div class="search-bar">
+        <input type="search" id="suche-input" placeholder="Name, Betrag oder Datum" oninput="renderSuche()">
+      </div>
+      <div class="filter-bar">
+        <label class="check-label"><input type="checkbox" id="suche-offen" onchange="renderSuche()"> Nur fehlende Belege</label>
+      </div>
+      <div id="suche-results"></div>
     </section>
 
     <!-- BAR BELEGE -->
@@ -317,7 +348,7 @@
         </div>
         <div class="field">
           <label>Art</label>
-          <select id="in-art">
+          <select id="in-art" onchange="const k=document.getElementById('in-kat'); if(this.value==='ein' && k.value==='betrieb') k.value='kunden'; if(this.value==='aus' && k.value==='kunden') k.value='betrieb';">
             <option value="aus" selected>Ausgabe</option>
             <option value="ein">Einnahme</option>
           </select>
@@ -327,6 +358,17 @@
           <select id="in-status">
             <option value="gefunden" selected>Gefunden</option>
             <option value="offen">Fehlt noch</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Kategorie</label>
+          <select id="in-kat" onchange="if(KAT_OHNE_MWST.includes(this.value)){document.getElementById('in-mwst').value='0';toggleMwstBetrag();}">
+            <option value="kunden">Kunden</option>
+            <option value="zuschuss">Zuschüsse &amp; Erstattungen</option>
+            <option value="betrieb" selected>Betrieb &amp; Material</option>
+            <option value="personal">Personal</option>
+            <option value="ust">Umsatzsteuer</option>
+            <option value="steuern">Sonstige Steuern</option>
           </select>
         </div>
         <div class="field">
@@ -420,12 +462,13 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 // ================= Navigation =================
 function switchView(name){
-  ['monat','jahr','eingabe','pdf'].forEach(v => {
+  ['monat','jahr','suche','eingabe','pdf'].forEach(v => {
     document.getElementById('view-'+v).classList.toggle('hidden', v !== name);
   });
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === name));
   if(name === 'monat') loadMonat();
   if(name === 'jahr') loadJahr();
+  if(name === 'suche') loadSuche();
 }
 let pickersReady = false;
 function initPickers(){
@@ -482,11 +525,29 @@ function steuerAnteil(r){
   return b * s / (100 + s);
 }
 function mwstLabel(r){ return hasMwstBetrag(r) ? 'MwSt ' + formatEUR(Math.abs(Number(r.mwst_betrag))) : mwstSatz(r) + ' %'; }
-const MWST_FREI_RE = /(versicherung|allianz|\baxa\b|\bhuk\b|finanzamt|bundeskasse|krankenkasse|\baok\b|barmer|\bdak\b|\bikk\b|knappschaft|minijob|gehalt|\blohn|sozialversicherung|berufsgenossenschaft|soka|rundfunk|zinsen)/i;
+const MWST_FREI_RE = /(agentur f(ü|ue)r arbeit|bundesagentur|arbeitsagentur|versicherung|allianz|\baxa\b|\bhuk\b|finanzamt|bundeskasse|krankenkasse|\baok\b|barmer|\bdak\b|\bikk\b|knappschaft|minijob|gehalt|\blohn|sozialversicherung|berufsgenossenschaft|soka|rundfunk|zinsen)/i;
 function guessMwst(beschreibung){ return MWST_FREI_RE.test(beschreibung || '') ? 0 : 19; }
+// ---- Kategorien ----
+const KATEGORIEN = { kunden:'Kunden', zuschuss:'Zuschüsse & Erstattungen', betrieb:'Betrieb & Material', personal:'Personal', ust:'Umsatzsteuer', steuern:'Sonstige Steuern' };
+const KAT_ORDER = ['kunden','zuschuss','betrieb','personal','ust','steuern'];
+const KAT_OHNE_MWST = ['zuschuss','personal','ust','steuern'];
+function katOf(r){ return r.kategorie && KATEGORIEN[r.kategorie] ? r.kategorie : null; }
+function guessKostenKat(beschreibung, betrag){
+  const d = beschreibung || '';
+  if(/(agentur f(ü|ue)r arbeit|bundesagentur|arbeitsagentur)/i.test(d)) return betrag > 0 ? 'zuschuss' : 'personal';
+  if(/(finanzamt|bundeskasse|steuerverwaltung)/i.test(d)){
+    if(/(umsatzsteuer|\bust\b|\busta\b|ust-va)/i.test(d)) return 'ust';
+    if(/(lohnsteuer|\blst\b)/i.test(d)) return 'personal';
+    if(/kfz/i.test(d)) return 'steuern';
+    return null;
+  }
+  if(/(gewerbesteuer|stadtkasse|gemeindekasse|kreiskasse)/i.test(d)) return 'steuern';
+  if(/(krankenkasse|\baok\b|barmer|\bdak\b|\bikk\b|knappschaft|minijob|sozialversicherung|berufsgenossenschaft|\bbg etem\b|gehalt|\blohn)/i.test(d)) return betrag > 0 ? 'zuschuss' : 'personal';
+  return betrag > 0 ? 'kunden' : 'betrieb';
+}
 function taxStats(rows){
   let nettoEin = 0, ust = 0, nettoAus = 0, vst = 0, vstGefahr = 0;
-  rows.filter(r => !isNeutral(r)).forEach(r => {
+  rows.filter(r => !isNeutral(r) && r.kategorie !== 'ust').forEach(r => {
     const b = Number(r.betrag) || 0, s = steuerAnteil(r);
     if(b > 0){ nettoEin += b - s; ust += s; }
     else if(b < 0){
@@ -583,7 +644,39 @@ function taxStatsHtml(rows){
       ${statBox('tax', 'Vorsteuer mit Beleg', t.vst, 'darf abgezogen werden', '')}
       ${statBox('warn', 'Vorsteuer in Gefahr', t.vstGefahr, 'Beleg fehlt oder nicht auffindbar', '')}
       ${statBox('zahllast', 'Voraussichtliche Zahllast', Math.abs(zl), zl >= 0 ? 'an das Finanzamt' : 'Erstattung vom Finanzamt', zl >= 0 ? 'neg' : 'pos')}
-    </div>`;
+    </div>` + katSectionHtml(rows, zl);
+}
+
+function catStats(rows){
+  const by = {};
+  KAT_ORDER.concat(['ohne']).forEach(k => by[k] = { n:0, brutto:0, netto:0 });
+  rows.filter(r => !isNeutral(r)).forEach(r => {
+    const k = katOf(r) || 'ohne', b = num(r), s = steuerAnteil(r);
+    by[k].n++; by[k].brutto += b; by[k].netto += b - s;
+  });
+  return by;
+}
+function katSectionHtml(rows, zahllast){
+  const by = catStats(rows);
+  const personal = by.personal.brutto, zuschuss = by.zuschuss.brutto;
+  const ustGezahlt = -by.ust.brutto;
+  const ueberschuss = KAT_ORDER.concat(['ohne']).filter(k => k !== 'ust' && k !== 'steuern').reduce((s, k) => s + by[k].netto, 0);
+  const body = KAT_ORDER.concat(['ohne']).filter(k => by[k].n > 0).map(k => `
+    <tr class="${k === 'ohne' ? 'warn-row' : ''}"><td>${k === 'ohne' ? 'Ohne Kategorie' : esc(KATEGORIEN[k])}</td>
+      <td class="amount">${by[k].n}</td>
+      <td class="amount ${signClass(by[k].brutto)}">${formatEUR(by[k].brutto)}</td>
+      <td class="amount ${signClass(by[k].netto)}">${formatEUR(by[k].netto)}</td></tr>`).join('');
+  return `<div class="section-label"><h3>Nach Kategorie</h3><span class="muted">ohne Privat, Bargeld und Aircash</span></div>
+    <div class="stats stats-3">
+      ${statBox('skip', 'Personalkosten', personal, 'Löhne, Krankenkassen, Lohnsteuer')}
+      ${statBox('ok', 'Zuschüsse & Erstattungen', zuschuss, 'z. B. Agentur für Arbeit')}
+      ${statBox('tax', 'Personalkosten nach Zuschüssen', personal + zuschuss, 'was das Personal wirklich kostet')}
+      ${statBox('tax', 'Umsatzsteuer ans Finanzamt', ustGezahlt, 'berechnet: ' + formatEUR(zahllast) + ' (Zahlung meist im Folgemonat)', '')}
+      ${statBox('zahllast', 'Überschuss vor Steuern (grob)', ueberschuss, 'Netto-Einnahmen minus Netto-Ausgaben')}
+    </div>
+    ${body ? `<div class="table-wrap"><table>
+      <thead><tr><th>Kategorie</th><th class="amount">Buchungen</th><th class="amount">Brutto</th><th class="amount">Netto</th></tr></thead>
+      <tbody>${body}</tbody></table></div>` : ''}`;
 }
 
 // ================= Monatsübersicht =================
@@ -592,6 +685,7 @@ let currentMonatData = [];
 let selectedIds = new Set();
 let statusFilter = 'alle';
 let searchTerm = '';
+let katFilter = 'alle';
 
 async function loadMonat(){
   // neuer Monat: Auswahl, Filter und Suche zurücksetzen
@@ -599,7 +693,9 @@ async function loadMonat(){
   editingRowId = null;
   statusFilter = 'alle';
   searchTerm = '';
+  katFilter = 'alle';
   document.getElementById('monat-search').value = '';
+  document.getElementById('monat-kat-filter').value = 'alle';
   updateFilterButtons();
   await refreshMonat();
 }
@@ -661,8 +757,14 @@ function matchesSearch(r){
   return hay.includes(q);
 }
 
+function setKatFilter(v){ katFilter = v; renderResults(); }
+function matchesKat(r){
+  if(katFilter === 'alle') return true;
+  if(isNeutral(r)) return false;
+  return katFilter === 'ohne' ? !katOf(r) : katOf(r) === katFilter;
+}
 function getFilteredData(data){
-  return data.filter(r => (statusFilter === 'alle' || statusOf(r) === statusFilter) && matchesSearch(r));
+  return data.filter(r => (statusFilter === 'alle' || statusOf(r) === statusFilter) && matchesKat(r) && matchesSearch(r));
 }
 
 function renderFilteredTables(){
@@ -687,6 +789,11 @@ function bulkToolbarHtml(){
     <button class="small secondary" onclick="bulkUpdateMwst(7)">MwSt 7 %</button>
     <button class="small secondary" onclick="bulkUpdateMwst(0)">MwSt 0 %</button>
     <span class="bulk-sep"></span>
+    <select onchange="if(this.value) bulkUpdateKategorie(this.value)">
+      <option value="">Kategorie setzen …</option>
+      ${KAT_ORDER.map(k => `<option value="${k}">${esc(KATEGORIEN[k])}</option>`).join('')}
+    </select>
+    <span class="bulk-sep"></span>
     <button class="small secondary" onclick="clearSelection()">Auswahl aufheben</button>
   </div>`;
 }
@@ -710,24 +817,48 @@ function flagsFor(value){
   if(value === 'aircash') u.aircash = true;
   return u;
 }
+// speichert Felder und aktualisiert die Anzeige ohne alles neu zu laden
+async function saveFields(ids, upd, rerender = true){
+  const q = sb.from('transactions').update(upd);
+  const { error } = ids.length === 1 ? await q.eq('id', ids[0]) : await q.in('id', ids);
+  if(error){ alert('Fehler: ' + error.message); return false; }
+  [currentMonatData, searchData].forEach(arr => arr.forEach(r => { if(ids.includes(r.id)) Object.assign(r, upd); }));
+  if(rerender) rerenderActive();
+  return true;
+}
+function findRow(id){ return currentMonatData.find(x => x.id === id) || searchData.find(x => x.id === id); }
+function rerenderActive(){
+  const y = window.scrollY;
+  if(!document.getElementById('view-monat').classList.contains('hidden')) renderMonatContent();
+  if(!document.getElementById('view-suche').classList.contains('hidden')) renderSuche();
+  window.scrollTo(0, y);
+}
 async function bulkUpdateStatus(value){
   const ids = [...selectedIds];
   if(ids.length === 0) return;
-  const { error } = await sb.from('transactions').update(flagsFor(value)).in('id', ids);
-  if(error){ alert('Fehler: ' + error.message); return; }
   selectedIds = new Set();
-  await refreshMonat();
+  await saveFields(ids, flagsFor(value));
 }
 async function bulkUpdateMwst(satz){
   const ids = [...selectedIds];
   if(ids.length === 0) return;
-  const { error } = await sb.from('transactions').update({ mwst_satz: satz, mwst_betrag: null }).in('id', ids);
-  if(error){ alert('Fehler: ' + error.message); return; }
   selectedIds = new Set();
-  await refreshMonat();
+  await saveFields(ids, { mwst_satz: satz, mwst_betrag: null });
 }
+function katUpdate(value){
+  const upd = { kategorie: value || null };
+  if(KAT_OHNE_MWST.includes(value)){ upd.mwst_satz = 0; upd.mwst_betrag = null; }
+  return upd;
+}
+async function bulkUpdateKategorie(value){
+  const ids = [...selectedIds];
+  if(ids.length === 0) return;
+  selectedIds = new Set();
+  await saveFields(ids, katUpdate(value));
+}
+async function updateKategorie(id, value){ await saveFields([id], katUpdate(value)); }
 async function updateMwst(id, value, sel){
-  const r = currentMonatData.find(x => x.id === id);
+  const r = findRow(id);
   let upd;
   if(value === 'manuell'){
     const vorschlag = r && hasMwstBetrag(r) ? Math.abs(Number(r.mwst_betrag)).toFixed(2).replace('.', ',') : '';
@@ -738,32 +869,28 @@ async function updateMwst(id, value, sel){
   } else {
     upd = { mwst_satz: Number(value), mwst_betrag: null };
   }
-  const { error } = await sb.from('transactions').update(upd).eq('id', id);
-  if(error){ alert('Fehler: ' + error.message); return; }
-  await refreshMonat();
+  await saveFields([id], upd);
 }
-async function updateBelegStatus(id, value){
-  const { error } = await sb.from('transactions').update(flagsFor(value)).eq('id', id);
-  if(error){ alert('Fehler: ' + error.message); return; }
-  await refreshMonat();
-}
-async function updateNotiz(id, value){
-  const notiz = value.trim() || null;
-  const { error } = await sb.from('transactions').update({ notiz }).eq('id', id);
-  if(error){ alert('Fehler: ' + error.message); return; }
-  const r = currentMonatData.find(x => x.id === id);
-  if(r) r.notiz = notiz;
-}
+async function updateBelegStatus(id, value){ await saveFields([id], flagsFor(value)); }
+async function updateNotiz(id, value){ await saveFields([id], { notiz: value.trim() || null }, false); }
 
 function statusSelectHtml(r){
   const st = statusOf(r);
   const opt = (v) => `<option value="${v}" ${st === v ? 'selected' : ''}>${STATUS_LABELS[v]}</option>`;
-  return `<select onchange="updateBelegStatus('${r.id}', this.value)">
+  const neutral = isNeutral(r);
+  return `<div class="cell-row"><select onchange="updateBelegStatus('${r.id}', this.value)">
       ${opt('offen')}${opt('gefunden')}${opt('skip')}${opt('privat')}${opt('umbuchung')}${opt('aircash')}
-    </select>
-    <div class="cell-row">${isNeutral(r) ? '' : mwstSelectHtml(r)}
+    </select>${neutral ? '' : kategorieSelectHtml(r)}</div>
+    <div class="cell-row">${neutral ? '' : mwstSelectHtml(r)}
       <input type="text" placeholder="Notiz" value="${esc(r.notiz)}" onchange="updateNotiz('${r.id}', this.value)"></div>
-    <span class="print-only"><b>${STATUS_LABELS[st]}</b>${isNeutral(r) ? '' : ', ' + mwstLabel(r)}${r.notiz ? ' – ' + esc(r.notiz) : ''}</span>`;
+    <span class="print-only"><b>${STATUS_LABELS[st]}</b>${neutral ? '' : ', ' + (katOf(r) ? esc(KATEGORIEN[katOf(r)]) + ', ' : '') + mwstLabel(r)}${r.notiz ? ' – ' + esc(r.notiz) : ''}</span>`;
+}
+function kategorieSelectHtml(r){
+  const k = katOf(r);
+  return `<select class="kat-sel" title="Kategorie" onchange="updateKategorie('${r.id}', this.value)">
+      <option value="" ${!k ? 'selected' : ''}>Kategorie …</option>
+      ${KAT_ORDER.map(v => `<option value="${v}" ${k === v ? 'selected' : ''}>${esc(KATEGORIEN[v])}</option>`).join('')}
+    </select>`;
 }
 function mwstSelectHtml(r){
   const manuell = hasMwstBetrag(r);
@@ -853,6 +980,8 @@ function aggregateMonth(rows){
   const s = computeStats(rows);
   m.einnahmen = s.einnahmen; m.ausgaben = s.ausgaben; m.geprueft = s.geprueft;
   Object.assign(m, taxStats(rows));
+  const cs = catStats(rows);
+  KAT_ORDER.concat(['ohne']).forEach(k => m['kat_' + k] = cs[k].brutto);
   rows.forEach(r => {
     const st = statusOf(r), b = num(r);
     m.gesamt++;
@@ -932,6 +1061,56 @@ function jahrSteuerTableHtml(perMonth, total){
     </table></div>`;
 }
 
+// ================= Belegsuche (alle Jahre) =================
+let searchData = [];
+async function loadSuche(){
+  const el = document.getElementById('suche-results');
+  el.innerHTML = '<p class="empty-note">Buchungen werden geladen …</p>';
+  const { data, error } = await fetchAll(() => sb.from('transactions').select('*').order('datum', { ascending: false }));
+  if(error){ el.innerHTML = '<p class="empty-note">Fehler beim Laden: ' + esc(error.message) + '</p>'; return; }
+  searchData = data || [];
+  renderSuche();
+  document.getElementById('suche-input').focus();
+}
+function sucheHaystack(r){
+  const b = num(r), a = Math.abs(b);
+  return [r.beschreibung, r.notiz, r.typ, formatEUR(b), a.toFixed(2), a.toFixed(2).replace('.', ','),
+    fmtDate(r.datum), r.datum, MONTH_NAMES[(r.monat || 1) - 1], r.jahr, katOf(r) ? KATEGORIEN[katOf(r)] : ''].join(' ').toLowerCase();
+}
+function renderSuche(){
+  const el = document.getElementById('suche-results');
+  const q = document.getElementById('suche-input').value.trim().toLowerCase();
+  const nurOffen = document.getElementById('suche-offen').checked;
+  if(!q && !nurOffen){
+    el.innerHTML = '<p class="empty-note">Suchbegriff eingeben. Mehrere Begriffe werden kombiniert, z. B. „hornbach 26,59“.</p>';
+    return;
+  }
+  const tokens = q.split(/\s+/).filter(Boolean).map(tk => tk.replace(/€/g, ''));
+  const hits = searchData.filter(r => (!nurOffen || statusOf(r) === 'offen') &&
+    tokens.every(tk => sucheHaystack(r).includes(tk)));
+  if(hits.length === 0){ el.innerHTML = '<p class="empty-note">Keine passende Buchung gefunden.</p>'; return; }
+  const shown = hits.slice(0, 150);
+  const body = shown.map(r => `<tr class="${ROW_CLASS[statusOf(r)]}">
+      <td class="nowrap">${fmtDate(r.datum)}<span class="sub-info">${r.typ}</span></td>
+      <td>${esc(r.beschreibung)}<span class="sub-info">${MONTH_NAMES[(r.monat || 1) - 1]} ${r.jahr}</span></td>
+      <td class="amount ${signClass(num(r))}">${formatEUR(num(r))}</td>
+      <td class="status-cell">${statusSelectHtml(r)}</td>
+      <td class="row-actions"><button class="small secondary" onclick="gotoMonat(${r.jahr}, ${r.monat})">Monat öffnen</button></td>
+    </tr>`).join('');
+  el.innerHTML = `<p class="muted" style="margin:4px 0 10px 0;">${hits.length} Treffer${hits.length > shown.length ? ', die ersten ' + shown.length + ' werden angezeigt' : ''}</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Datum</th><th>Beschreibung</th><th class="amount">Betrag</th><th>Beleg / Notiz</th><th class="row-actions"></th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+}
+function gotoMonat(jahr, monat){
+  const js = document.getElementById('monat-jahr');
+  if(![...js.options].some(o => Number(o.value) === jahr)) js.insertAdjacentHTML('beforeend', `<option value="${jahr}">${jahr}</option>`);
+  js.value = String(jahr);
+  document.getElementById('monat-monat').value = String(monat);
+  switchView('monat');
+  window.scrollTo(0, 0);
+}
+
 // ================= Export: CSV und Drucken =================
 function csvNum(n){ return (Number(n) || 0).toFixed(2).replace('.', ','); }
 function csvCell(v){
@@ -955,25 +1134,29 @@ function exportMonatCSV(){
   const rows = getFilteredData(currentMonatData);
   if(rows.length === 0){ alert('Keine Buchungen zum Exportieren.'); return; }
   const sorted = [...rows.filter(r => r.typ === 'Bank'), ...rows.filter(r => r.typ === 'Bar')];
-  const out = [['Datum','Typ','Beschreibung','Betrag','MwSt-Satz','MwSt','Netto','Status','Notiz']];
+  const out = [['Datum','Typ','Beschreibung','Betrag','Kategorie','MwSt-Satz','MwSt','Netto','Status','Notiz']];
   sorted.forEach(r => {
     const neutral = isNeutral(r), s = steuerAnteil(r);
     out.push([fmtDate(r.datum), r.typ, r.beschreibung, csvNum(num(r)),
+      neutral ? '' : (katOf(r) ? KATEGORIEN[katOf(r)] : 'ohne Kategorie'),
       neutral ? '' : (hasMwstBetrag(r) ? 'gemischt' : mwstSatz(r) + ' %'),
       neutral ? '' : csvNum(s), neutral ? '' : csvNum(num(r) - s),
       statusLabel(r), r.notiz || '']);
   });
-  const suffix = statusFilter === 'alle' ? '' : '_' + FILTER_LABELS[statusFilter].replace(/\s+/g, '-');
+  let suffix = statusFilter === 'alle' ? '' : '_' + FILTER_LABELS[statusFilter].replace(/\s+/g, '-');
+  if(katFilter !== 'alle') suffix += '_' + (katFilter === 'ohne' ? 'ohne-Kategorie' : KATEGORIEN[katFilter].replace(/[^A-Za-zÄÖÜäöüß]+/g, '-'));
   downloadCSV(`Belegkontrolle_${jahr}-${String(monat).padStart(2,'0')}${suffix}.csv`, out);
 }
 
 function exportJahrCSV(){
   if(!lastJahrPerMonth){ alert('Keine Buchungen zum Exportieren.'); return; }
   const out = [['Monat','Einnahmen','Ausgaben','Saldo','Geprüfter Saldo','Belegt','Fehlt noch','Nicht auffindbar','Privat','Bargeldabhebung','Aircash','Offene Belege',
-    'Netto-Einnahmen','Umsatzsteuer','Netto-Ausgaben','Vorsteuer mit Beleg','Vorsteuer in Gefahr','Zahllast']];
+    'Netto-Einnahmen','Umsatzsteuer','Netto-Ausgaben','Vorsteuer mit Beleg','Vorsteuer in Gefahr','Zahllast',
+    ...KAT_ORDER.map(k => KATEGORIEN[k]), 'Ohne Kategorie']];
   const line = (name, m) => [name, csvNum(m.einnahmen), csvNum(m.ausgaben), csvNum(m.einnahmen + m.ausgaben), csvNum(m.geprueft),
     csvNum(m.belegt), csvNum(m.fehlt), csvNum(m.skip), csvNum(m.privat), csvNum(m.umbuchung), csvNum(m.aircash), m.offen,
-    csvNum(m.nettoEin), csvNum(m.ust), csvNum(m.nettoAus), csvNum(m.vst), csvNum(m.vstGefahr), csvNum(m.zahllast)];
+    csvNum(m.nettoEin), csvNum(m.ust), csvNum(m.nettoAus), csvNum(m.vst), csvNum(m.vstGefahr), csvNum(m.zahllast),
+    ...KAT_ORDER.concat(['ohne']).map(k => csvNum(m['kat_' + k]))];
   MONTH_NAMES.forEach((name, i) => { const m = lastJahrPerMonth[i+1]; if(m.gesamt) out.push(line(name, m)); });
   out.push(line('Jahr gesamt', aggregateMonth(lastJahrRows)));
   downloadCSV(`Belegkontrolle_${lastJahrNr}_Jahresuebersicht.csv`, out);
@@ -986,6 +1169,7 @@ function printView(which){
     const jahr = parseInt(document.getElementById('monat-jahr').value, 10);
     let t = `BIT-Elektrotechnik – Belegkontrolle ${MONTH_NAMES[monat-1]} ${jahr}`;
     if(statusFilter !== 'alle') t += `\nFilter: ${FILTER_LABELS[statusFilter]}`;
+    if(katFilter !== 'alle') t += `\nKategorie: ${katFilter === 'ohne' ? 'ohne Kategorie' : KATEGORIEN[katFilter]}`;
     if(searchTerm.trim()) t += `\nSuche: „${searchTerm.trim()}“`;
     t += `\nStand: ${now}`;
     document.getElementById('monat-print-title').textContent = t;
@@ -1007,6 +1191,7 @@ async function submitManuell(){
   const privat = document.getElementById('in-privat').checked;
   const notiz = document.getElementById('in-notiz').value.trim() || null;
   const mwstWahl = document.getElementById('in-mwst').value;
+  const kategorie = document.getElementById('in-kat').value || null;
   const statusEl = document.getElementById('eingabe-status');
   let mwst_satz = 19, mwst_betrag = null;
   if(mwstWahl === 'manuell'){
@@ -1031,7 +1216,7 @@ async function submitManuell(){
   const { error } = await sb.from('transactions').insert({
     jahr: y, monat: m, datum, typ, beschreibung, betrag,
     beleg_gefunden: !privat && gefunden, nicht_auffindbar: false, privat, umbuchung: false, aircash: false,
-    mwst_satz, mwst_betrag, notiz, erstellt_von: session.user.email
+    mwst_satz, mwst_betrag, kategorie, notiz, erstellt_von: session.user.email
   });
   if(error){
     statusEl.textContent = 'Fehler beim Speichern: ' + error.message;
@@ -1042,6 +1227,7 @@ async function submitManuell(){
   statusEl.style.color = 'var(--green)';
   ['in-beschreibung','in-betrag','in-notiz','in-foto','in-mwst-betrag'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('in-mwst').value = '19';
+  document.getElementById('in-kat').value = 'betrieb';
   toggleMwstBetrag();
   document.getElementById('in-privat').checked = false;
   document.getElementById('foto-status').textContent = '';
@@ -1269,7 +1455,10 @@ async function parsePdf(){
     const n = Math.abs(parseAmount(raw));
     if(isNaN(n)) return;
     const betrag = sign === '-' ? -n : n;
-    results.push({ tag, monatNr: mon, beschreibung: desc, betrag, typ: 'Bank', kategorie: guessKategorie(desc, betrag), mwst: guessMwst(desc), dup: false });
+    const art = guessKategorie(desc, betrag);
+    const kat = art === 'normal' ? guessKostenKat(desc, betrag) : null;
+    results.push({ tag, monatNr: mon, beschreibung: desc, betrag, typ: 'Bank', art, kat,
+      mwst: KAT_OHNE_MWST.includes(kat) ? 0 : guessMwst(desc), dup: false });
   };
   for(const line of lines){
     const sm = line.match(singleLineRe);
@@ -1311,9 +1500,13 @@ function renderPdfPreview(results){
     return;
   }
   const dupCount = results.filter(r => r.dup).length;
-  const katOpt = (r, v, label) => `<option value="${v}" ${r.kategorie === v ? 'selected' : ''}>${label}</option>`;
+  const artOpt = (r, v, label) => `<option value="${v}" ${r.art === v ? 'selected' : ''}>${label}</option>`;
+  const katSel = (r) => `<select data-field="kat" style="width:180px;" onchange="if(KAT_OHNE_MWST.includes(this.value)) this.closest('tr').querySelector('[data-field=mwst]').value='0';">
+      <option value="" ${!r.kat ? 'selected' : ''}>– keine –</option>
+      ${KAT_ORDER.map(k => `<option value="${k}" ${r.kat === k ? 'selected' : ''}>${esc(KATEGORIEN[k])}</option>`).join('')}
+    </select>`;
   const rows = results.map((r, i) => `
-    <tr class="${r.dup ? 'row-dup' : (r.kategorie === 'aircash' ? 'row-aircash' : (r.kategorie === 'bargeld' ? 'row-umbuchung' : ''))}">
+    <tr class="${r.dup ? 'row-dup' : (r.art === 'aircash' ? 'row-aircash' : (r.art === 'bargeld' ? 'row-umbuchung' : ''))}">
       <td><input type="checkbox" class="pdf-row-check" ${r.dup ? '' : 'checked'}></td>
       <td><input type="text" value="${r.tag}/${r.monatNr}" data-field="datum" style="width:70px;"></td>
       <td><input type="text" value="${esc(r.beschreibung)}" data-field="beschreibung" style="min-width:240px;"></td>
@@ -1322,15 +1515,16 @@ function renderPdfPreview(results){
       <td><select data-field="mwst" style="width:80px;">
         <option value="19" ${r.mwst === 19 ? 'selected' : ''}>19 %</option><option value="7">7 %</option><option value="0" ${r.mwst === 0 ? 'selected' : ''}>0 %</option>
       </select></td>
-      <td><select data-field="kategorie" style="width:165px;">
-        ${katOpt(r, 'normal', 'Normal')}${katOpt(r, 'bargeld', 'Bargeldabhebung')}${katOpt(r, 'aircash', 'Aircash')}
+      <td><select data-field="art" style="width:165px;">
+        ${artOpt(r, 'normal', 'Normal')}${artOpt(r, 'bargeld', 'Bargeldabhebung')}${artOpt(r, 'aircash', 'Aircash')}
       </select></td>
+      <td>${katSel(r)}</td>
       <td>${r.dup ? '<span class="dup-tag">schon vorhanden</span>' : ''}</td>
     </tr>`).join('');
   wrap.innerHTML = `
     <p style="margin:10px 0;">${results.length} Buchungen erkannt.${dupCount ? ` <span class="dup-tag">${dupCount} schon vorhanden</span> und deshalb abgewählt.` : ''} Bitte prüfen und dann übernehmen.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th class="amount">Betrag</th><th>Typ</th><th>MwSt</th><th>Kategorie</th><th></th></tr></thead>
+      <thead><tr><th></th><th>TT/MM</th><th>Beschreibung</th><th class="amount">Betrag</th><th>Typ</th><th>MwSt</th><th>Art</th><th>Kategorie</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <button onclick="confirmPdfImport()">Ausgewählte übernehmen</button>
@@ -1349,7 +1543,8 @@ async function confirmPdfImport(){
     const beschreibung = row.querySelector('[data-field="beschreibung"]').value.trim();
     const betrag = parseAmount(row.querySelector('[data-field="betrag"]').value);
     const typ = row.querySelector('[data-field="typ"]').value;
-    const kat = row.querySelector('[data-field="kategorie"]').value;
+    const art = row.querySelector('[data-field="art"]').value;
+    const kat = row.querySelector('[data-field="kat"]').value || null;
     const mwst_satz = Number(row.querySelector('[data-field="mwst"]').value);
     const mon = parseInt(monatNr, 10);
     if(!tag || !mon || mon < 1 || mon > 12 || isNaN(betrag)) return;
@@ -1357,7 +1552,8 @@ async function confirmPdfImport(){
       jahr, monat: mon, datum: `${jahr}-${String(mon).padStart(2,'0')}-${tag.padStart(2,'0')}`,
       typ, beschreibung, betrag,
       beleg_gefunden: false, nicht_auffindbar: false, privat: false,
-      umbuchung: kat === 'bargeld', aircash: kat === 'aircash',
+      umbuchung: art === 'bargeld', aircash: art === 'aircash',
+      kategorie: art === 'normal' ? kat : null,
       mwst_satz, mwst_betrag: null, notiz: null, erstellt_von: session.user.email
     });
   });
